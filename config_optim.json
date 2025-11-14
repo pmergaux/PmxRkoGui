@@ -1,0 +1,8 @@
+{
+  "renko_size": [10.0, 15.0, 17.1, 20.0],
+  "seq_len": [20, 30, 50],
+  "ema_period": [9, 14],
+  "features": [["EMA", "RSI", "MACD_hist"]],
+  "start_date": "2025-09-01",
+  "end_date": "2025-10-25"
+}

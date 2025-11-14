@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>MainWindow</class>
+ <widget class="QMainWindow" name="MainWindow">
+  <property name="geometry">
+   <rect><x>0</x><y>0</y><width>1200</width><height>800</height></rect>
+  </property>
+  <property name="windowTitle">
+   <string>GrokLstmRenkoTrader - Pierre 83 ans</string>
+  </property>
+
+  <widget class="QWidget" name="centralwidget">
+   <layout class="QVBoxLayout">
+    <item>
+     <widget class="QTabWidget" name="main_tabs">
+
+      <!-- ==================== CONFIGURATION ==================== -->
+      <widget class="QWidget" name="configuration_tab">
+       <attribute name="title"><string>Configuration</string></attribute>
+       <layout class="QHBoxLayout">
+        <item>
+         <widget class="QGroupBox" name="group_params">
+          <property name="title"><string>Paramètres généraux</string></property>
+          <layout class="QFormLayout" name="form_params">
+           <item row="0" column="0"><widget class="QLabel"><property name="text"><string>Taille Renko</string></property></widget></item>
+           <item row="0" column="1"><widget class="QLineEdit" name="renko_size"><property name="text"><string>20.0</string></property></widget></item>
+           <item row="1" column="0"><widget class="QLabel"><property name="text"><string>Séquence LSTM</string></property></widget></item>
+           <item row="1" column="1"><widget class="QLineEdit" name="lstm_seq_len"><property name="text"><string>60</string></property></widget></item>
+           <item row="2" column="0"><widget class="QLabel"><property name="text"><string>Unités LSTM</string></property></widget></item>
+           <item row="2" column="1"><widget class="QLineEdit" name="lstm_units"><property name="text"><string>128</string></property></widget></item>
+           <item row="3" column="0"><widget class="QLabel"><property name="text"><string>Seuil Achat</string></property></widget></item>
+           <item row="3" column="1"><widget class="QLineEdit" name="threshold_buy"><property name="text"><string>0.60</string></property></widget></item>
+           <item row="4" column="0"><widget class="QLabel"><property name="text"><string>Seuil Vente</string></property></widget></item>
+           <item row="4" column="1"><widget class="QLineEdit" name="threshold_sell"><property name="text"><string>0.40</string></property></widget></item>
+          </layout>
+         </widget>
+        </item>
+
+        <item>
+         <widget class="QGroupBox" name="group_features">
+          <property name="title"><string>Indicateurs et Cible</string></property>
+          <layout class="QGridLayout" name="grid_features">
+           <item row="0" column="0"><widget class="QLabel"><property name="text"><string>Indicateur 1</string></property></widget></item>
+           <item row="0" column="1"><widget class="QComboBox" name="feat_1"/></item>
+           <item row="1" column="0"><widget class="QLabel"><property name="text"><string>Indicateur 2</string></property></widget></item>
+           <item row="1" column="1"><widget class="QComboBox" name="feat_2"/></item>
+           <item row="2" column="0"><widget class="QLabel"><property name="text"><string>Indicateur 3</string></property></widget></item>
+           <item row="2" column="1"><widget class="QComboBox" name="feat_3"/></item>
+           <item row="3" column="0"><widget class="QLabel"><property name="text"><string>Cible</string></property></widget></item>
+           <item row="3" column="1"><widget class="QComboBox" name="target_col">
+            <item><property name="text"><string>close</string></property></item>
+            <item><property name="text"><string>EMA</string></property></item>
+            <item><property name="text"><string>RSI</string></property></item>
+           </widget></item>
+           <item row="4" column="0"><widget class="QLabel"><property name="text"><string>Type cible</string></property></widget></item>
+           <item row="4" column="1"><widget class="QComboBox" name="target_type">
+            <item><property name="text"><string>Direction</string></property></item>
+            <item><property name="text"><string>Valeur</string></property></item>
+            <item><property name="text"><string>Return</string></property></item>
+           </widget></item>
+           <item row="5" column="1"><widget class="QCheckBox" name="include_target"><property name="text"><string>Inclure cible</string></property></widget></item>
+          </layout>
+         </widget>
+        </item>
+
+        <item>
+         <widget class="QGroupBox" name="group_rules">
+          <property name="title"><string>Règles manuelles</string></property>
+          <layout class="QVBoxLayout">
+           <item><widget class="QCheckBox" name="rule_rsi"><property name="text"><string>RSI > 70 → Vente</string></property></widget></item>
+           <item><widget class="QCheckBox" name="rule_ema"><property name="text"><string>EMA croise à la hausse → Achat</string></property></widget></item>
+           <item><widget class="QCheckBox" name="rule_macd"><property name="text"><string>MACD croise signal → Achat</string></property></widget></item>
+          </layout>
+         </widget>
+        </item>
+       </layout>
+
+       <layout class="QHBoxLayout">
+        <item><widget class="QPushButton" name="btn_validate"><property name="text"><string>Valider</string></property></widget></item>
+        <item><widget class="QPushButton" name="btn_save"><property name="text"><string>Sauvegarder</string></property></widget></item>
+        <item><widget class="QPushButton" name="btn_load"><property name="text"><string>Charger</string></property></widget></item>
+       </layout>
+      </widget>
+
+      <!-- ==================== TRADING LIVE ==================== -->
+      <widget class="QWidget" name="live_tab">
+       <attribute name="title"><string>Trading Live</string></attribute>
+       <layout class="QVBoxLayout">
+        <item>
+         <widget class="QWidget" name="live_chart_container">
+          <layout class="QVBoxLayout" name="live_chart_layout"/>
+         </widget>
+        </item>
+        <item>
+         <widget class="QTableWidget" name="signal_table">
+          <property name="columnCount"><number>6</number></property>
+          <property name="horizontalHeaderLabels">
+           <stringlist>
+            <string>Heure</string><string>Symbole</string><string>Source</string><string>Signal</string><string>Proba</string><string>Statut</string>
+           </stringlist>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="live_status">
+          <property name="text"><string>MT5: Déconnecté | ZeroMQ: Inactif</string></property>
+          <property name="styleSheet"><string>color: red; font-weight: bold;</string></property>
+          <property name="alignment"><set>Qt::AlignCenter</set></property>
+         </widget>
+        </item>
+       </layout>
+      </widget>
+
+      <!-- ==================== OPTIMISATION ==================== -->
+      <widget class="QWidget" name="optimization_tab">
+       <attribute name="title"><string>Optimisation</string></attribute>
+       <layout class="QVBoxLayout">
+        <item><widget class="QProgressBar" name="opt_progress"/></item>
+        <item><widget class="QPushButton" name="btn_optimize"><property name="text"><string>Lancer Optimisation</string></property></widget></item>
+       </layout>
+      </widget>
+
+     </widget>
+    </item>
+   </layout>
+  </widget>
+  <widget class="QStatusBar" name="statusbar"/>
+ </widget>
+ <resources/>
+ <noconnections/>
+</ui>

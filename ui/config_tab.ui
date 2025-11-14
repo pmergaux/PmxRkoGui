@@ -1,0 +1,526 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>configuration_tab</class>
+ <widget class="QWidget" name="configuration_tab">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>718</width>
+    <height>419</height>
+   </rect>
+  </property>
+  <property name="maximumSize">
+   <size>
+    <width>718</width>
+    <height>16777215</height>
+   </size>
+  </property>
+  <layout class="QHBoxLayout">
+   <item>
+    <widget class="QGroupBox" name="group_params">
+     <property name="title">
+      <string>Paramètres généraux</string>
+     </property>
+     <layout class="QFormLayout" name="form_params">
+      <item row="0" column="0">
+       <widget class="QLabel" name="label">
+        <property name="text">
+         <string>Taille Renko</string>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="1">
+       <widget class="QLineEdit" name="renko_size">
+        <property name="text">
+         <string>20.0</string>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="0">
+       <widget class="QLabel" name="label">
+        <property name="text">
+         <string>Séquence LSTM</string>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="1">
+       <widget class="QLineEdit" name="lstm_seq_len">
+        <property name="text">
+         <string>60</string>
+        </property>
+       </widget>
+      </item>
+      <item row="2" column="0">
+       <widget class="QLabel" name="label">
+        <property name="text">
+         <string>Unités LSTM</string>
+        </property>
+       </widget>
+      </item>
+      <item row="2" column="1">
+       <widget class="QLineEdit" name="lstm_units">
+        <property name="text">
+         <string>128</string>
+        </property>
+       </widget>
+      </item>
+      <item row="3" column="0">
+       <widget class="QLabel" name="label">
+        <property name="text">
+         <string>Seuil Achat</string>
+        </property>
+       </widget>
+      </item>
+      <item row="3" column="1">
+       <widget class="QLineEdit" name="threshold_buy">
+        <property name="text">
+         <string>0.60</string>
+        </property>
+       </widget>
+      </item>
+      <item row="4" column="0">
+       <widget class="QLabel" name="label">
+        <property name="text">
+         <string>Seuil Vente</string>
+        </property>
+       </widget>
+      </item>
+      <item row="4" column="1">
+       <widget class="QLineEdit" name="threshold_sell">
+        <property name="text">
+         <string>0.40</string>
+        </property>
+       </widget>
+      </item>
+      <item row="6" column="0">
+       <widget class="QLabel" name="rsiPeriodLabel">
+        <property name="text">
+         <string>Rsi period</string>
+        </property>
+       </widget>
+      </item>
+      <item row="6" column="1">
+       <widget class="QLineEdit" name="rsi_period">
+        <property name="inputMask">
+         <string>##</string>
+        </property>
+        <property name="text">
+         <string>14</string>
+        </property>
+       </widget>
+      </item>
+      <item row="7" column="0">
+       <widget class="QLabel" name="macdFastLabel">
+        <property name="text">
+         <string>Macd fast</string>
+        </property>
+       </widget>
+      </item>
+      <item row="7" column="1">
+       <widget class="QLineEdit" name="macd_fast">
+        <property name="inputMask">
+         <string>##</string>
+        </property>
+        <property name="text">
+         <string>12</string>
+        </property>
+       </widget>
+      </item>
+      <item row="8" column="0">
+       <widget class="QLabel" name="macdSlowLabel">
+        <property name="text">
+         <string>Macd slow</string>
+        </property>
+       </widget>
+      </item>
+      <item row="8" column="1">
+       <widget class="QLineEdit" name="macd_slow">
+        <property name="inputMask">
+         <string>##</string>
+        </property>
+        <property name="text">
+         <string>26</string>
+        </property>
+       </widget>
+      </item>
+      <item row="9" column="0">
+       <widget class="QLabel" name="macdSignalLabel">
+        <property name="text">
+         <string>Macd signal</string>
+        </property>
+       </widget>
+      </item>
+      <item row="9" column="1">
+       <widget class="QLineEdit" name="macd_signal">
+        <property name="inputMask">
+         <string>##</string>
+        </property>
+        <property name="text">
+         <string>8</string>
+        </property>
+       </widget>
+      </item>
+      <item row="10" column="0">
+       <widget class="QLabel" name="cciPeriodLabel">
+        <property name="text">
+         <string>Cci period</string>
+        </property>
+       </widget>
+      </item>
+      <item row="10" column="1">
+       <widget class="QLineEdit" name="cci_period">
+        <property name="inputMask">
+         <string>##</string>
+        </property>
+        <property name="text">
+         <string>14</string>
+        </property>
+       </widget>
+      </item>
+      <item row="5" column="0">
+       <widget class="QLabel" name="emaPeriodLabel">
+        <property name="text">
+         <string>Ema period</string>
+        </property>
+       </widget>
+      </item>
+      <item row="5" column="1">
+       <widget class="QLineEdit" name="ema_period">
+        <property name="inputMask">
+         <string>##</string>
+        </property>
+        <property name="text">
+         <string>9</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="group_features">
+     <property name="title">
+      <string>Indicateurs et Cible</string>
+     </property>
+     <layout class="QGridLayout" name="grid_features">
+      <item row="0" column="0">
+       <widget class="QLabel" name="label">
+        <property name="text">
+         <string>Indicateur 1</string>
+        </property>
+       </widget>
+      </item>
+      <item row="2" column="1">
+       <widget class="QComboBox" name="feat_3">
+        <item>
+         <property name="text">
+          <string/>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>LSTM</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>EMA</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>RSI</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>MACD_line</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>CCI</string>
+         </property>
+        </item>
+       </widget>
+      </item>
+      <item row="6" column="0">
+       <widget class="QLabel" name="label">
+        <property name="text">
+         <string>Type cible</string>
+        </property>
+       </widget>
+      </item>
+      <item row="7" column="1">
+       <widget class="QCheckBox" name="target_include">
+        <property name="text">
+         <string>Inclure cible</string>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="0">
+       <widget class="QLabel" name="label">
+        <property name="text">
+         <string>Indicateur 2</string>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="1">
+       <widget class="QComboBox" name="feat_1">
+        <item>
+         <property name="text">
+          <string/>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>LSTM</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>EMA</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>RSI</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>MACD_line</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>CCI</string>
+         </property>
+        </item>
+       </widget>
+      </item>
+      <item row="5" column="0">
+       <widget class="QLabel" name="label">
+        <property name="text">
+         <string>Cible</string>
+        </property>
+       </widget>
+      </item>
+      <item row="6" column="1">
+       <widget class="QComboBox" name="target_type">
+        <item>
+         <property name="text">
+          <string>Direction</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Valeur</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Return</string>
+         </property>
+        </item>
+       </widget>
+      </item>
+      <item row="5" column="1">
+       <widget class="QComboBox" name="target_col">
+        <item>
+         <property name="text">
+          <string>close</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>EMA</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>RSI</string>
+         </property>
+        </item>
+       </widget>
+      </item>
+      <item row="3" column="1">
+       <widget class="QComboBox" name="feat_4">
+        <item>
+         <property name="text">
+          <string/>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>LSTM</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>EMA</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>RSI</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>MACD_line</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>CCI</string>
+         </property>
+        </item>
+       </widget>
+      </item>
+      <item row="1" column="1">
+       <widget class="QComboBox" name="feat_2">
+        <item>
+         <property name="text">
+          <string/>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>LSTM</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>EMA</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>RSI</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>MACD_line</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>CCI</string>
+         </property>
+        </item>
+       </widget>
+      </item>
+      <item row="2" column="0">
+       <widget class="QLabel" name="label">
+        <property name="text">
+         <string>Indicateur 3</string>
+        </property>
+       </widget>
+      </item>
+      <item row="4" column="1">
+       <widget class="QCheckBox" name="time_live">
+        <property name="text">
+         <string>time live</string>
+        </property>
+        <property name="checked">
+         <bool>false</bool>
+        </property>
+       </widget>
+      </item>
+      <item row="3" column="0">
+       <widget class="QLabel" name="label_2">
+        <property name="text">
+         <string>indicateur 4</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="group_rules">
+     <property name="title">
+      <string>Règles manuelles</string>
+     </property>
+     <layout class="QVBoxLayout">
+      <item>
+       <widget class="QCheckBox" name="rule_rsi">
+        <property name="text">
+         <string>30 &lt; RSI &lt; 70</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="rule_ema">
+        <property name="text">
+         <string>EMA croise close</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="rule_macd">
+        <property name="text">
+         <string>MACD croise signal</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="groupBox">
+     <property name="title">
+      <string>                       </string>
+     </property>
+     <widget class="QPushButton" name="btn_validate">
+      <property name="geometry">
+       <rect>
+        <x>0</x>
+        <y>110</y>
+        <width>101</width>
+        <height>28</height>
+       </rect>
+      </property>
+      <property name="text">
+       <string>Valider</string>
+      </property>
+     </widget>
+     <widget class="QPushButton" name="btn_save">
+      <property name="geometry">
+       <rect>
+        <x>0</x>
+        <y>150</y>
+        <width>100</width>
+        <height>28</height>
+       </rect>
+      </property>
+      <property name="text">
+       <string>Sauvegarder</string>
+      </property>
+     </widget>
+     <widget class="QPushButton" name="btn_load">
+      <property name="geometry">
+       <rect>
+        <x>0</x>
+        <y>190</y>
+        <width>101</width>
+        <height>28</height>
+       </rect>
+      </property>
+      <property name="text">
+       <string>Charger</string>
+      </property>
+     </widget>
+    </widget>
+   </item>
+   <item>
+    <layout class="QHBoxLayout"/>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

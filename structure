@@ -1,0 +1,29 @@
+GrokTrader/
+├── ui/
+│   ├── main_window.ui
+│   ├── config_tab.ui
+│   ├── live_monitor.ui
+│   └── optimization_tab.ui
+├── config/
+│   ├── config_tab.py
+│   └── real_config.json
+├── live/
+│   ├── live_monitor.py
+│   └── simulator.py
+├── optimize/
+│   ├── optimization_tab.py
+│   └── optimization_worker.py
+├── mt5/
+│   └── mt5_connector.py
+├── lstm/
+│   └── lstm_live.py
+├── core/
+│   └── real_engine.py
+├── risk/
+│   └── kelly.py
+├── data/
+│   └── trades.db
+├── models/
+│   └── (à entraîner)
+├── main.py
+└── requirements.txt

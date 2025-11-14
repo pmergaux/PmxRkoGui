@@ -1,0 +1,16 @@
+{
+  "symbol": "ETHUSD",
+  "renko_size": 17.1,
+  "seq_len": 50,
+  "features": ["EMA", "RSI", "MACD_hist", "time_vol"],
+  "target": {
+    "column": "close",
+    "type": "direction",
+    "include_in_features": false
+  },
+  "live": {
+    "mt5_login": 123456,
+    "mt5_password": "your_password",
+    "mt5_server": "ICMarkets-Demo"
+  }
+}
