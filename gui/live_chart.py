@@ -1,14 +1,20 @@
 # gui/live_chart.py
-from PyQt5.QtWidgets import QWidget, QVBoxLayout
-from PyQt5.QtWebEngineWidgets import QWebEngineView
+from PyQt6 import uic
+from PyQt6.QtCore import QTimer
+from PyQt6.QtWidgets import QWidget, QVBoxLayout
+from PyQt6.QtWebEngineWidgets import QWebEngineView
 import plotly.graph_objects as go
 import pandas as pd
 import json
 import numpy as np
 
+from simulation.simulator import RenkoSimulator
+
+
 class LiveChart(QWidget):
     def __init__(self, parent=None):
-        super().__init__(parent)
+        super().__init__()
+        self.parent = parent
         self.webview = QWebEngineView()
         layout = QVBoxLayout(self)
         layout.addWidget(self.webview)

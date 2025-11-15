@@ -7,34 +7,21 @@ import pandas as pd
 import json
 import os
 
-from PyQt5.QtCore import pyqtSignal
-from PyQt6.QtCore import QThread
-from keras import Sequential
-from keras.src.layers import LSTM, Dropout, Dense
-from sklearn.preprocessing import MinMaxScaler
-
-from decision.candle_decision import calculate_indicators, choix_features
-from utils.lstm_utils import create_sequences
-from utils.renko_utils import tick21renko
 from utils.utils import load_ticks
 
 # ===================================================================
 # 2. DIALOGUE D'OPTIMISATION (GUI + RETRAIN FINAL)
 # ===================================================================
 # optimize/optimization_tab.py
-# optimize/optimization_tab.py
 from PyQt6 import uic
 from PyQt6.QtWidgets import QWidget, QFileDialog, QMessageBox
-from PyQt6.QtCore import QDate
-import pandas as pd
 
 
 class OptimizationTab(QWidget):
     def __init__(self, parent=None):
         super().__init__()
-        self.parent = parent
-
         uic.loadUi("ui/optimization_tab.ui", self)
+        self.parent = parent
 
         self.btn_start_opt.clicked.connect(self.start_optimization)
         self.btn_export_params.clicked.connect(self.export_grid)
@@ -73,6 +60,9 @@ class OptimizationTab(QWidget):
         grid = [dict(zip(keys, prod)) for prod in product(*values)]
         self.opt_status.setText(f"{len(grid)} combinaisons → {start} à {end}")
         return grid, start, end
+
+    def export_grid(self):
+        pass
 
     def start_optimization(self):
         result = self.generate_grid()

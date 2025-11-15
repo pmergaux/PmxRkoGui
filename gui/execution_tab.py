@@ -1,63 +1,49 @@
 # gui/execution_tab.py
 import pandas as pd
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QPushButton, QLabel, QHBoxLayout
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QPushButton, QLabel, QHBoxLayout
+from PyQt6 import uic
+
 from gui.live_chart import LiveChart
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
 from matplotlib.dates import DateFormatter
 
-from utils.renko_utils import colonnesRko
-from utils.utils import BUY, SELL, NONE, load_config
-from matplotlib.patches import Polygon, Rectangle
-import numpy as np
-
-
+from simulation.simulator import RenkoSimulator
 
 class ExecutionTab(QWidget):
     def __init__(self, parent=None):
-        super().__init__(parent)
+        super().__init__()
+        uic.loadUi("ui/live_chart.ui", self)
         self.parent = parent
-        layout = QVBoxLayout()
 
-        # === BOUTONS CÔTE À CÔTE ===
-        btn_layout = QHBoxLayout()  # ← HORIZONTAL
-        self.btn_start = QPushButton("START")
-        self.btn_stop = QPushButton("STOP")
-        self.btn_start.setFixedWidth(100)
-        self.btn_stop.setFixedWidth(100)
-        self.btn_start.clicked.connect(parent.start_execution)
-        self.btn_stop.clicked.connect(parent.stop_execution)
-        btn_layout.addWidget(self.btn_start)
-        btn_layout.addWidget(self.btn_stop)
-        btn_layout.addStretch()  # Pousse à gauche
-        layout.addLayout(btn_layout)
-        # ---- config ----------
-        """
-        self.btn_load = QPushButton("Charger Config Live")
-        self.btn_save = QPushButton("Sauver Config Live")
-        btn_layout = QHBoxLayout()
-        btn_layout.addWidget(self.btn_load)
-        btn_layout.addWidget(self.btn_save)
-        layout.addLayout(btn_layout)
-        self.btn_load.clicked.connect(self.load_live_config)
-        self.btn_save.clicked.connect(self.save_live_config)
-        """
+        self.btn_start.clicked.connect(self.start_execution)
+        self.btn_stop.clicked.connect(self.stop_execution)
         # === GRAPHIQUE PRINCIPAL (BRIQUES + EMA) ===
-        self.chart = LiveChart()
-        layout.addWidget(self.chart)
+        self.chart = LiveChart(self)
+        self.view.addWidget(self.chart)
 
         # === SOUS-GRAPHIQUES : RSI + MACD ===
         self.fig_ind, (self.ax_rsi, self.ax_macd) = plt.subplots(2, 1, figsize=(12, 4), sharex=True)
         self.canvas_ind = FigureCanvasQTAgg(self.fig_ind)
-        layout.addWidget(self.canvas_ind)
+        self.view.addWidget(self.canvas_ind)
 
         # === LÉGENDE ===
         legend = QLabel(
             "Signaux : ▲ sigo BUY | ▼ sigo SELL | ■ sigc CLOSE | ★ LSTM"
         )
-        layout.addWidget(legend)
-        self.setLayout(layout)
+        self.view.addWidget(legend)
         self.last_brick = None
+
+        self.simulator = None
+
+    def start_execution(self):
+        cfg = self.parent.get_config_live()
+        self.simulator = RenkoSimulator(self, cfg)  # ← CORRIGÉ : 3 args OK
+        self.parent.start_execution(self.simulator)
+
+    def stop_execution(self):
+        if self.simulator:
+            self.simulator.timer.stop()
 
     # gui/execution_tab.py
     def update_display(self, data):

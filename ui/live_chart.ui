@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>live_tab</class>
+ <widget class="QWidget" name="live_tab">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>361</width>
+    <height>861</height>
+   </rect>
+  </property>
+  <property name="minimumSize">
+   <size>
+    <width>0</width>
+    <height>0</height>
+   </size>
+  </property>
+  <layout class="QVBoxLayout" name="main_layout">
+   <item>
+    <layout class="QHBoxLayout">
+     <item>
+      <widget class="QPushButton" name="btn_start">
+       <property name="styleSheet">
+        <string>background:#006400;color:white;font-weight:bold;padding:10px;</string>
+       </property>
+       <property name="text">
+        <string>LANCER LE LIVE</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="btn_stop">
+       <property name="styleSheet">
+        <string>background:#8B0000;color:white;font-weight:bold;padding:10px;</string>
+       </property>
+       <property name="text">
+        <string>STOP</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="status_label">
+       <property name="styleSheet">
+        <string>color:orange;font-weight:bold;</string>
+       </property>
+       <property name="text">
+        <string>Statut : En attente...</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <layout class="QVBoxLayout" name="view">
+     <property name="minimumSize" stdset="0">
+      <size>
+       <width>0</width>
+       <height>500</height>
+      </size>
+     </property>
+    </layout>
+   </item>
+   <item>
+    <widget class="QTableWidget" name="signal_table">
+     <property name="styleSheet">
+      <string>background:#1a1a1a;color:white;</string>
+     </property>
+     <property name="columnCount">
+      <number>6</number>
+     </property>
+     <property name="horizontalHeaderLabels" stdset="0">
+      <stringlist>
+       <string>Heure</string>
+       <string>Symbole</string>
+       <string>Source</string>
+       <string>Signal</string>
+       <string>Proba</string>
+       <string>Statut</string>
+      </stringlist>
+     </property>
+     <column/>
+     <column/>
+     <column/>
+     <column/>
+     <column/>
+     <column/>
+    </widget>
+   </item>
+   <item>
+    <widget class="QLabel" name="live_status">
+     <property name="styleSheet">
+      <string>color: red; font-weight: bold;</string>
+     </property>
+     <property name="text">
+      <string>MT5: Déconnecté | ZeroMQ: Inactif</string>
+     </property>
+     <property name="alignment">
+      <set>Qt::AlignCenter</set>
+     </property>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
