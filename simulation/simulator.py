@@ -1,5 +1,8 @@
 # simulation/simulator.py
-from PyQt5.QtCore import QTimer
+import time
+from threading import Timer
+
+from PyQt6.QtCore import QTimer, QThread
 from decision.candle_decision import calculate_indicators, choix_features
 from utils.renko_utils import tick2renko, colonnesRko, update_renko_bricks, tick21renko
 from utils.utils import BUY, SELL, NONE
@@ -9,8 +12,9 @@ import pickle
 pd.set_option('display.max_columns', 40)
 pd.set_option('display.width', 2500)
 
-class RenkoSimulator:
+class RenkoSimulator(QThread):
     def __init__(self, parent, config):
+
         self.parent = parent
         self.config = config
         self.bricks = None
@@ -25,10 +29,15 @@ class RenkoSimulator:
         if self.config.get('features', None) is None:
             self.config['features'] = ['EMA', 'RSI', 'MACD_hist']
 
+    def start(self):
+        while self.tick_idx < len(self.all_ticks):
+            self.run()
+
     def load_data(self):
         with open("data/ETHUSD.pkl", "rb") as f:
             self.all_ticks = pickle.load(f)
         self.tick_idx = 0
+        print("simule start")
 
     def run(self):
         if self.all_ticks is None or self.tick_idx >= len(self.all_ticks) or self.ticks_load > len(self.all_ticks):
@@ -55,7 +64,6 @@ class RenkoSimulator:
             print(self.bricks.tail(3))
             self.df = calculate_indicators(self.bricks, self.config)
             self.df = choix_features(self.df, self.config)
-            #df = df[:, len(colonnesRko):]
 
         # --- Transmettre UNIQUEMENT ce qui est nécessaire ---
         display_data = {
@@ -63,6 +71,8 @@ class RenkoSimulator:
             'current_bid': new_ticks['bid'].iloc[-1]  # ← DERNIER, pas premier
         }
         self.parent.update_display(display_data)
+        time.sleep(15)
+        print('fin time')
 
 """
 # lorsque l'on génère les tickd et non chargés depuis un .pkl
