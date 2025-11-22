@@ -1,0 +1,58 @@
+{
+  "parametrers": {
+  "renko_size": 17.1,
+  "ema_period": 9,
+  "rsi_period": 14,
+  "rsi_high": 70.0,
+  "rsi_low": 30.0,
+  "cci_period": 14,
+  "cci_high": 100.0,
+  "cci_low": -100.0,
+  "atr_period": 14,
+  "stk_rsi_period": 14,
+  "macd": {
+    "macd_fast": 12,
+    "macd_slow": 26,
+    "macd_signal": 9
+  }
+},
+  "lstm": {
+    "seq_len": 58,
+    "units": 50,
+    "threshold_buy": 0.612,
+    "threshold_sell": "0.389"
+  },
+  "features": [
+    "EMA",
+    "RSI",
+    "MACD_line",
+    "time_live"
+  ],
+  "target": {
+    "target_col": "close",
+    "target_type": "Direction",
+    "target_include": true
+  },
+  "open_rules": {
+    "rule_ema": true,
+    "rule_rsi": true,
+    "rule_macd": true
+  },
+  "close_rules": {
+    "close_ema": true,
+    "close_sens": true
+  },
+  "live": {
+    "symbol": "ETHUSD",
+    "timeframe": "10m",
+    "volume": 1.0,
+    "sl": 60.0,
+    "tp": 40.0,
+    "magic": 125784,
+    "mt5_login": 203690,
+    "mt5_password": "axa77Garp&",
+    "mt5_server": "FusionMarkets-Demo",
+    "name": "pmxRKO",
+    "lot_size": 1.0
+  }
+}
