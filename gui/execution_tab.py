@@ -1,14 +1,19 @@
 # gui/execution_tab.py
+from datetime import datetime
+
 import pandas as pd
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QPushButton, QLabel, QHBoxLayout
 from PyQt6 import uic
+from mt5linux import MetaTrader5
 
 from gui.live_chart import LiveChart
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
 from matplotlib.dates import DateFormatter
-
+from strategy.pmxRko import PmxRkoStrategy
 from simulation.simulator import RenkoSimulator
+from utils.utils import BUY, SELL
+
 
 class ExecutionTab(QWidget):
     def __init__(self, parent=None):
@@ -28,22 +33,32 @@ class ExecutionTab(QWidget):
         self.view.addWidget(self.canvas_ind)
 
         # === LÉGENDE ===
-        legend = QLabel(
-            "Signaux : ▲ sigo BUY | ▼ sigo SELL | ■ sigc CLOSE | ★ LSTM"
+        self.legend_text = "Signaux : ▲ sigo BUY | ▼ sigo SELL | ■ sigc CLOSE | ★ LSTM --|-- "
+        # self.. permet une réutilisation comme position : sens, prix ouv. profit
+        self.legend = QLabel(
+            self.legend_text
         )
-        self.view.addWidget(legend)
-        self.last_brick = None
+        self.view.addWidget(self.legend)
 
+        self.last_brick = None
         self.simulator = None
+        self.cfg = None
 
     def start_execution(self):
-        cfg = self.parent.get_config_live()
-        self.simulator = RenkoSimulator(self, cfg)  # ← CORRIGÉ : 3 args OK
-        self.parent.start_execution(self.simulator)
+        self.cfg = self.parent.get_config_live()
+        self.status_label.setText('Trading en cours')
+        if self.cfg.get('live', None) is None:
+            self.simulator = RenkoSimulator(self, self.cfg)  # ← CORRIGÉ : 3 args OK
+            self.parent.start_execution(self.simulator, 100)
+        else:
+            self.simulator = PmxRkoStrategy(self, self.cfg)
+            self.simulator.lance()
+            self.parent.start_execution(self.simulator,1000)
 
     def stop_execution(self):
-        if self.simulator:
+        if self.simulator is not None:
             self.simulator.timer.stop()
+        self.status_label.setText("Trading stop")
 
     # gui/execution_tab.py
     def update_display(self, data):
@@ -52,7 +67,7 @@ class ExecutionTab(QWidget):
             return
 
         # --- 10 dernières pour le graphique principal ---
-        df_chart = df_full.tail(10)
+        df_chart = df_full.tail(15)
         chart_data = {
             'df': df_chart,
             'current_bid': data['current_bid']
@@ -61,6 +76,20 @@ class ExecutionTab(QWidget):
 
         if self.last_brick is not None and self.last_brick == df_full.index[-1]:
             return
+        positionStatut = ''
+        strategy = data.get("strategy", None)
+        if strategy is not None and strategy.positions is not None and len(strategy.positions) > 0:
+            position = strategy.positions[0]
+            ls = BUY if position.type == MetaTrader5.POSITION_TYPE_BUY else SELL
+            cp = position.price_current
+            pc = position.price_open
+            TP = (pc + strategy.stp * ls) if strategy.stp != 0 else 0
+            SL = (pc - strategy.ssl * ls) if strategy.ssl != 0 else 0
+            date = pd.Timestamp(position.time, unit='s')
+            # print(type(date), date)  #.strftime("yyyy-MM-dd hh:mm:ss"))
+            positionStatut = (f" position : {'buy' if ls==BUY else 'sell'} le : {date} open : {pc:.2f}, "
+                              f"tp : {TP:.2f} sl : {SL:.2f} pf : {position.profit:.2f}")
+        self.legend.setText(self.legend_text + positionStatut)
         # --- 80 dernières pour RSI/MACD (cohérent avec 10 bougies = 2h) ---
         df_ind = df_full.tail(80)
 
@@ -71,8 +100,8 @@ class ExecutionTab(QWidget):
         rsi = df_ind['RSI'].dropna()
         if not rsi.empty:
             self.ax_rsi.plot(rsi.index, rsi.values, color='purple', linewidth=1.2)
-            self.ax_rsi.axhline(70, color='r', linestyle='--', alpha=0.5)
-            self.ax_rsi.axhline(30, color='g', linestyle='--', alpha=0.5)
+            self.ax_rsi.axhline(self.cfg.get('rsi_high',70), color='r', linestyle='--', alpha=0.5)
+            self.ax_rsi.axhline(self.cfg.get('rsi_low',30), color='g', linestyle='--', alpha=0.5)
             self.ax_rsi.set_ylim(0, 100)
             self.ax_rsi.set_ylabel('RSI')
             self.ax_rsi.grid(True, alpha=0.3)
@@ -85,7 +114,7 @@ class ExecutionTab(QWidget):
             if not macd.empty:
                 self.ax_macd.plot(macd.index, macd.values, color='blue', linewidth=1)
                 self.ax_macd.plot(signal.index, signal.values, color='orange', linewidth=1)
-                # self.ax_macd.bar(hist.index, hist.values, color='gray', alpha=0.6, width=0.8)
+                self.ax_macd.plot(hist.index, hist.values, color='gray', linewidth=1)
                 self.ax_macd.axhline(0, color='k', linewidth=0.5)
                 self.ax_macd.set_ylabel('MACD')
                 self.ax_macd.grid(True, alpha=0.3)

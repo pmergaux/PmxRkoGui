@@ -1,25 +1,51 @@
 # Fonctions ticks2rates et ticks22rates modifiées
 from datetime import datetime
-
 import pandas as pd
+import numpy as np
+from future.backports.datetime import timedelta
 
+# Constantes de Timeframe (Identiques à votre définition)
 Tf2Rs = {
-    '1m': '1Min',
-    '2m': '2Min',
-    '3m': '3Min',
-    '4m': '4Min',
-    '5m': '5Min',
-    '10m': '10Min',
-    '15m': '15Min',
-    '30m': '30Min',
-    '1h': 'h',
-    '2h': '2h',
-    '3h': '3h',
-    '4h': '4h',
-    '1d': 'D',
+    '1m': '1Min', '2m': '2Min', '3m': '3Min', '4m': '4Min',
+    '5m': '5Min', '10m': '10Min', '15m': '15Min', '30m': '30Min',
+    '1h': 'h', '2h': '2h', '3h': '3h', '4h': '4h', '1d': 'D',
 }
 
-def ticks2rates(ticks: pd.DataFrame, period: str, value: str='bid'):
+
+def ticks2rates(data: pd.DataFrame, period: str, value: str) -> pd.DataFrame:
+    """Génère les rates OHLC initiales à partir des ticks."""
+    if period not in Tf2Rs:
+        raise ValueError(f"Période '{period}' non supportée.")
+    if value not in data.columns:
+        raise ValueError(f"Colonne de valeur '{value}' manquante dans les données.")
+
+    return data[value].resample(Tf2Rs[period]).ohlc()
+
+def ticks22rates(rates: pd.DataFrame, ticks: pd.DataFrame, timeframe: int, value='bid'):
+    per = timedelta(seconds=timeframe)
+    rate = rates.iloc[-1]
+    drate = rates.index[-1].to_pydatetime()
+    lnt = len(ticks)
+    rt = 0
+    for i in range(lnt):
+        dtick = ticks.index[i].to_pydatetime()
+        bid = ticks.iloc[i][value]
+        if (dtick - drate) > per:
+            drate += per
+            rate = pd.DataFrame.from_dict({drate: [bid, bid, bid, bid]},
+                                          orient='index', columns=['open', 'high', 'low', 'close'])
+            rates = pd.concat([rates, rate])
+            rt += 1
+        else:
+            rates.loc[drate, 'close'] = bid
+            if rates.iloc[-1]['high'] < bid:
+                rates.loc[drate, 'high'] = bid
+            elif rates.iloc[-1]['low'] > bid:
+                rates.loc[drate, 'low'] = bid
+    return rt, rates
+
+
+def _ticks2rates(ticks: pd.DataFrame, period: str, value: str='bid'):
     #print(f"{datetime.now()} ticks2rates: Début, ticks.shape={ticks.shape}, period={period}, value={value}")
     if value not in ticks.columns:
         raise ValueError(f"Colonne {value} absente dans les ticks")
@@ -48,7 +74,7 @@ def ticks2rates(ticks: pd.DataFrame, period: str, value: str='bid'):
     #print(f"{datetime.now()} ticks2rates: Fin, df.shape={df.shape}, volume_somme={df['volume'].sum()}")
     return df
 
-def ticks22rates(rates: pd.DataFrame, ticks: pd.DataFrame, timeframe: int):
+def _ticks22rates(rates: pd.DataFrame, ticks: pd.DataFrame, timeframe: int):
     # print(f"{datetime.now()} ticks22rates: Début, ticks.shape={ticks.shape}, timeframe={timeframe}")
     valeur = 'bid'
     if valeur not in ticks.columns:
@@ -67,8 +93,7 @@ def ticks22rates(rates: pd.DataFrame, ticks: pd.DataFrame, timeframe: int):
         else:
             raise ValueError("Colonne 'time' absente ou index non-datetime")
 
-    if rates is not None and not rates.empty:
-        rates = rates.copy()
+    if rates is not None and len(rates) > 0:
         if 'volume' not in rates.columns:
             rates['volume'] = 1
             # print(f"{datetime.now()} ticks22rates: Volume forcé à 1 dans rates")

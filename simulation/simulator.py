@@ -14,7 +14,7 @@ pd.set_option('display.width', 2500)
 
 class RenkoSimulator(QThread):
     def __init__(self, parent, config):
-
+        super().__init__()
         self.parent = parent
         self.config = config
         self.bricks = None
@@ -29,15 +29,11 @@ class RenkoSimulator(QThread):
         if self.config.get('features', None) is None:
             self.config['features'] = ['EMA', 'RSI', 'MACD_hist']
 
-    def start(self):
-        while self.tick_idx < len(self.all_ticks):
-            self.run()
-
     def load_data(self):
         with open("data/ETHUSD.pkl", "rb") as f:
             self.all_ticks = pickle.load(f)
         self.tick_idx = 0
-        print("simule start")
+        print(f"simule start {len(self.all_ticks)}")
 
     def run(self):
         if self.all_ticks is None or self.tick_idx >= len(self.all_ticks) or self.ticks_load > len(self.all_ticks):
@@ -71,8 +67,6 @@ class RenkoSimulator(QThread):
             'current_bid': new_ticks['bid'].iloc[-1]  # ← DERNIER, pas premier
         }
         self.parent.update_display(display_data)
-        time.sleep(15)
-        print('fin time')
 
 """
 # lorsque l'on génère les tickd et non chargés depuis un .pkl

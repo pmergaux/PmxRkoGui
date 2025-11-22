@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 import re
 import math
 
-from PyQt5.QtWidgets import QFileDialog
+from PyQt5.QtWidgets import QFileDialog, QWidget
 from sklearn.linear_model import LinearRegression
 import sys
 from mt5linux import MetaTrader5
@@ -36,6 +36,7 @@ SELL = -1
 SELL_CONT = -2
 SELL_STOP = -3
 CLOSE = 5
+FCLOSE = 6
 NONE = 0
 UP = 1
 DOWN = -1
@@ -131,6 +132,13 @@ def linear_regression_sklearn(x, y) -> dict:
         #"t": r / np.sqrt((1 - r * r) / (x.size - 2)),
         "line": b + a * x}
     return result
+
+
+def to_number(x, strict=False):
+    try:
+        return int(x) if x.isdigit() else float(x)
+    except:
+        return None if strict else x
 
 # ===========================================================================================
 # Fonction pour parser les plages depuis les args (format: start,stop,step)
@@ -298,10 +306,21 @@ def load_config(qui, filename=None, required=False):
     else:
         return {}
 
-def save_config(qui, filename, cfg):
-    path, _ = QFileDialog.getSaveFileName(qui, "Sauver config", filename, "JSON (*.json)")
+def save_config(qui: QWidget, filename, cfg):
+    path, _ = QFileDialog.getSaveFileName(parent=None, caption="Sauver config", directory=filename, filter="JSON (*.json)")
     if path:
         with open(path, 'w') as f:
             json.dump(cfg, f, indent=2)
         qui.parent.statusBar().showMessage(f"Config sauvegardée : {path}")
 
+def safe_float(value, default='N/A', fmt='.2f'):
+    """
+    Convertit en float si possible, sinon retourne default.
+    """
+    if value is None or value == '':
+        return default
+    try:
+        f = float(value)
+        return f"{f:{fmt}}"
+    except (ValueError, TypeError):
+        return default

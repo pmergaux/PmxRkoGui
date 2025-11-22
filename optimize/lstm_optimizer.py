@@ -13,7 +13,8 @@ import numpy as np
 
 from utils.renko_utils import tick21renko
 from decision.candle_decision import calculate_indicators, choix_features
-from utils.lstm_utils import create_sequences, build_transformer, clean_features, build_transformer_tunable
+from utils.lstm_utils import create_sequences, build_transformer, clean_features, build_transformer_tunable, \
+    generate_param_combinations
 import traceback
 
 log = logging.getLogger(__name__)
@@ -145,16 +146,7 @@ def _optimize_single(params, tick_path):
         print("Err op Single", error_msg)
         return None
 
-def generate_param_combinations(grid):
-    import itertools
-    keys = grid.keys()
-    values = [grid[k] if isinstance(grid[k], list) else [grid[k]] for k in keys]
-    for combo in itertools.product(*values):
-        yield dict(zip(keys, combo))
-
-
 # === FONCTION NOMMÉE (PICKLABLE) ===
-# FONCTION NOMMÉE (PICKLABLE)
 def _optimize_single_wrapper(args):
     params, ticks_path = args
     return _optimize_single(params, ticks_path)

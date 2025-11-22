@@ -11,6 +11,12 @@ from sklearn.metrics import accuracy_score, f1_score, roc_auc_score, log_loss
 from numba import njit, prange
 from typing import List, Tuple, Dict
 
+def generate_param_combinations(grid):
+    import itertools
+    keys = grid.keys()
+    values = [grid[k] if isinstance(grid[k], list) else [grid[k]] for k in keys]
+    for combo in itertools.product(*values):
+        yield dict(zip(keys, combo))
 
 def load_model(model_path: str):
     """
@@ -87,17 +93,6 @@ def create_sequences_opt(data, seq_len):
         return np.array([]), np.array([])
     return _create_sequences_numba(data, seq_len)
 
-def create_sequences_target(data, seq_len):
-    X, y = [], []
-    # On s'arrête à len(data) - seq_len pour avoir une cible
-    for i in range(len(data) - seq_len):
-        X.append(data[i:i + seq_len])
-        # Cible : close[i + seq_len] vs close[i + seq_len - 1]
-        close_n = data[i + seq_len - 1, 0]      # close à t
-        close_n1 = data[i + seq_len, 0]         # close à t+1
-        y.append( 1 if close_n1 > close_n else 0)
-    return np.array(X), np.array(y)
-
 @njit(parallel=True, cache=True)
 def _create_sequences_numba(data: np.ndarray, seq_len: int, target_col_idx: int, include_target_in_features: bool,
                             target_type: int ) -> Tuple[np.ndarray, np.ndarray]:
@@ -105,25 +100,18 @@ def _create_sequences_numba(data: np.ndarray, seq_len: int, target_col_idx: int,
     Version NUMBA ultra-rapide de create_sequences.
     target_type   # 0: direction, 1: value, 2: return
     """
-    n_samples = data.shape[0]
-    n_features = data.shape[1]
-    if include_target_in_features:
-        seq_features = n_features
-    else:
-        seq_features = n_features - 1
-    n_seq = n_samples - seq_len
+    n_samples = data.shape[0]       # taille # de lignes
+    n_features = data.shape[1]      # nb de col
+    n_seq = n_samples - seq_len     # nb de target possible
     if n_seq <= 0:
-        return np.empty((0, seq_len, seq_features)), np.empty((0,))
-    X = np.empty((n_seq, seq_len, seq_features), dtype=np.float64)
+        return np.empty((0, seq_len, n_features)), np.empty((0,))
+    X = np.empty((n_seq, seq_len, n_features), dtype=np.float64)
     y = np.empty((n_seq,), dtype=np.float64)
     for i in prange(n_seq):
         # --- Copie séquence ---
         start_idx = i
         end_idx = i + seq_len
         seq = data[start_idx:end_idx]
-        if not include_target_in_features:
-            # Supprime la cible de chaque ligne
-            seq = np.delete(seq, target_col_idx, axis=1)
         X[i] = seq
         # --- Cible à t+1 ---
         val_t = data[i + seq_len - 1, target_col_idx]
@@ -137,7 +125,7 @@ def _create_sequences_numba(data: np.ndarray, seq_len: int, target_col_idx: int,
     return X, y
 
 
-def create_sequences(data: np.ndarray, seq_len: int, target_config: Dict, feature_names: list) -> Tuple[np.ndarray, np.ndarray]:
+def create_sequences(data: np.ndarray, params: dict):  #seq_len: int, target_config: Dict, feature_names: list) -> Tuple[np.ndarray, np.ndarray]:
     """
     Système ouvert : crée X et y selon la configuration.
     Parameters:
@@ -154,30 +142,30 @@ def create_sequences(data: np.ndarray, seq_len: int, target_config: Dict, featur
         }
     feature_names : list
         Noms des colonnes (ex: ["EMA", "RSI", "MACD_hist", "close"])
-
     Returns:
     --------
     X : (n_samples, seq_len, n_features)
     y : (n_samples,) ou (n_samples, 1)
     """
-    target_col = target_config["column"]
-    try:
-        target_idx = feature_names.index(target_col)
-    except ValueError:
-        raise ValueError(f"Colonne cible '{target_col}' non trouvée dans features")
-    target_type_map = {
-        "direction": 0,
-        "value": 1,
-        "return": 2
-    }
+    features = params.get('features', [])
+    target = params.get('target', {})
+    lstm = params.get('lstm', {})
+    if len(features) == 0 or len(target) == 0 or len(lstm) == 0:
+        raise "features or target or lstm None"
+    target_col = target.get("column")
     # -- converti le type en int
-    target_type = target_type_map[target_config["type"]]
+    target_type = target.get("type")
     # -- la cible est elle dans les données d'établissement du modèle
-    include_target = target_config.get("include_in_features", True)
-
+    include_target = target.get("include", True)
+    if include_target and target_col not in features:
+        features.append(target_col)
+    n_features = data.shape[1]      # nb de col
+    if n_features != len(features):
+        raise "nb colonnes data # nb de features"
+    target_idx = features.index(target_col)
     return _create_sequences_numba(
         data=data,
-        seq_len=seq_len,
+        seq_len=lstm.get('seq_len', 50),
         target_col_idx=target_idx,
         include_target_in_features=include_target,
         target_type=target_type

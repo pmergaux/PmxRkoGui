@@ -1,8 +1,74 @@
 {
-  "renko_size": [10.0, 15.0, 17.1, 20.0],
-  "seq_len": [20, 30, 50],
-  "ema_period": [9, 14],
-  "features": [["EMA", "RSI", "MACD_hist"]],
-  "start_date": "2025-09-01",
-  "end_date": "2025-10-25"
+  "period": {
+    "date_start": "2023-01-01",
+    "date_end": "2025-11-13"
+  },
+  "parameters": {
+    "renko_size": {
+      "values": [10.0, 15.0, 20.0, 25.0, 30.0],
+      "type": "range",
+      "source": "10-30-5"
+    },
+    "ema": {
+      "values": [8, 9, 10],
+      "type": "list",
+      "source": "8, 9, 10"
+    }
+  },
+  "lstm": {
+    "lstm_seq_len": {
+      "values": [30, 60, 90],
+      "type": "list",
+      "source": "30,60,90"
+    },
+    "lstm_units": {
+      "values": [50, 60, 70, 80, 90, 100],
+      "type": "range",
+      "source": "50-100-10"
+    },
+    "lstm_threshold_buy": {
+      "values": [0.5, 0.6, 0.7],
+      "type": "list",
+      "source": "0.5,0.6,0.7"
+    },
+    "lstm_threshold_sell": {
+      "values": [0.3, 0.4, 0.5],
+      "type": "list",
+      "source": "0.3,0.4,0.5"
+    }
+  },
+  "features": [
+    "EMA",
+    "RSI",
+    "MACD_line",
+    "time_live"
+  ],
+  "target": {
+    "target_col": "close",
+    "target_type": "Direction",
+    "target_include": true
+  },
+  "open_rules": {
+    "rule_ema": true,
+    "rule_rsi": true,
+    "rule_macd": true
+  },
+  "close_rules": {
+    "close_ema": true,
+    "close_sens": true
+  },
+  "live": {
+    "symbol": "ETHUSD",
+    "timeframe": "10m",
+    "volume": 1.0,
+    "sl": 60.0,
+    "tp": 40.0,
+    "magic": 125784,
+    "mt5_login": 203690,
+    "mt5_password": "axa77Garp&",
+    "mt5_server": "FusionMarkets-Demo",
+    "name": "pmxRKO",
+    "lot_size": 1.0
+  }
 }
+

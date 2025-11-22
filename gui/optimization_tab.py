@@ -1,88 +1,240 @@
 # optimization_dialog.py
-from datetime import datetime, timedelta, time
-
 import joblib
-import numpy as np
 import pandas as pd
 import json
 import os
 
-from utils.utils import load_ticks
+from PyQt6.QtCore import QDate
+from PyQt6.QtWidgets import QWidget, QFileDialog, QMessageBox, QComboBox, QLineEdit, QDateEdit
+from PyQt6 import uic
+from datetime import datetime
+
+
+from decision.candle_decision import calculate_indicators, choix_features
+from optimize.optimization_worker import OptimizationWorker
+from utils.config_utils import indVal, tarVal
+from utils.lstm_utils import create_sequences, generate_param_combinations
+from utils.qwidget_utils import get_widget_from_dict, set_widget_from_dict, set_widget_from_list, get_widget_from_list
+from utils.renko_utils import tick21renko
+from utils.utils import load_ticks, to_number
 
 # ===================================================================
 # 2. DIALOGUE D'OPTIMISATION (GUI + RETRAIN FINAL)
 # ===================================================================
-# optimize/optimization_tab.py
-from PyQt6 import uic
-from PyQt6.QtWidgets import QWidget, QFileDialog, QMessageBox
-
-
+# gui/optimisation_tab.py
 class OptimizationTab(QWidget):
     def __init__(self, parent=None):
         super().__init__()
-        uic.loadUi("ui/optimization_tab.ui", self)
+        uic.loadUi("ui/config_optim_tab.ui", self)
         self.parent = parent
+        self.cfg = parent.get_config_optim()
+        # Connexions boutons
+        self.btn_save.clicked.connect(self.save_config)
+        self.btn_load.clicked.connect(self.load_config)
+        self.btn_validate.clicked.connect(self.validate_and_show)
+        # NOTA : pour retrouver un widget par son nom widget = getattr(self, nom)
 
-        self.btn_start_opt.clicked.connect(self.start_optimization)
-        self.btn_export_params.clicked.connect(self.export_grid)
-
-    def get_date_range(self):
-        start = self.date_start.date().toPyDate()
-        end = self.date_end.date().toPyDate()
-        if start >= end:
-            QMessageBox.warning(self, "Erreur", "Date début ≥ date fin !")
-            return None
-        return start, end
-
-    def generate_grid(self):
-        date_range = self.get_date_range()
-        if not date_range:
-            return []
-
-        start, end = date_range
-        params = {
-            "renko_size": self._parse_values(self.opt_renko_size.text(), self.opt_renko_list.isChecked()),
-            "lstm_seq_len": self._parse_values(self.opt_lstm_seq_len.text(), self.opt_lstm_seq_list.isChecked()),
-            "lstm_units": self._parse_values(self.opt_lstm_units.text(), self.opt_lstm_units_list.isChecked()),
-            "threshold_buy": self._parse_values(self.opt_threshold_buy.text(), self.opt_threshold_buy_list.isChecked()),
-            "threshold_sell": self._parse_values(self.opt_threshold_sell.text(),
-                                                 self.opt_threshold_sell_list.isChecked()),
-            "rsi_period": self._parse_values(self.opt_rsi_period.text(), self.opt_rsi_period_list.isChecked()),
-            "ema_period": self._parse_values(self.opt_ema_period.text(), self.opt_ema_period_list.isChecked()),
+        self.mapping = {
+            "period": {
+                "date_start": self.date_start,
+                "date_end": self.date_end
+            },
+            "parameters" : {
+                "renko_size": (self.renko_size, self.opt_renko_list),
+                "ema_period": (self.ema_period, self.opt_ema_period_list),
+                "rsi_period": (self.rsi_period, self.opt_rsi_period_list),
+                "rsi_high": (self.rsi_high, self.opt_rsi_high_list),
+                "rsi_low": (self.rsi_low, self.opt_rsi_low_list),
+            },
+            "lstm": {
+                "lstm_seq_len": (self.lstm_seq_len, self.opt_lstm_seq_list),
+                "lstm_units": (self.lstm_units, self.opt_lstm_units_list),
+                "lstm_threshold_buy": (self.lstm_threshold_buy, self.opt_threshold_buy_list),
+                "lstm_threshold_sell": (self.lstm_threshold_sell, self.opt_threshold_sell_list),
+            },
+            "features": [self.feat_1, self.feat_2, self.feat_3, self.feat_4, self.feat_5, self.time_live],
+            "target": {
+                "target_col":self.target_col, "target_type":self.target_type, "target_include": self.target_include
+            },
+            "open_rules":{
+                'rule_ema': self.rule_ema, 'rule_rsi': self.rule_rsi, 'rule_macd': self.rule_macd },
+            "close_rules": {"close_ema": self.close_ema, "close_sens": self.close_sens},
+            "live": {
+                "symbol": self.symbol,
+                "timeframe": self.timeframe,
+                "sl": self.sl,
+                "tp": self.tp,
+                "volume": self.volume,
+                "magic": self.magic,
+                "name": self.name
+            }
         }
+        for value in self.mapping["features"]:
+            if value.objectName() != "time_live":
+                value.addItems(indVal)
+        self.target_col.addItems(tarVal)
+        self.set_optim_config(self.cfg)
 
-        from itertools import product
-        keys, values = zip(*[(k, v) for k, v in params.items() if v])
-        if not keys:
-            QMessageBox.warning(self, "Erreur", "Aucun paramètre défini !")
+    def parse_range_or_list(self, text: str):
+        """
+        Parse un texte comme "10,15,20" ou "10-30-5"
+        Retourne une liste de valeurs (float/int)
+        """
+        text = text.strip()
+        if not text:
             return []
+        if ',' in text:
+            # Format liste : 10,15,20
+            return [to_number(x.strip()) for x in text.split(',') if x.strip()]
+        elif '-' in text and text.count('-') == 2:
+            # Format range : min-max-step
+            try:
+                min_val, max_val, step = text.split('-')
+                min_val, max_val, step = float(min_val), float(max_val), float(step)
+                return [round(min_val + i * step, 6) for i in range(int((max_val - min_val) / step) + 1)]
+            except:
+                return []
+        else:
+            # Valeur unique
+            val = to_number(text, True)
+            return [val] if val is not None else []
 
-        grid = [dict(zip(keys, prod)) for prod in product(*values)]
-        self.opt_status.setText(f"{len(grid)} combinaisons → {start} à {end}")
-        return grid, start, end
+    def get_optim_config(self):
+        """Retourne un dict prêt à être sauvegardé ou utilisé pour l'optimisation"""
+        self.cfg["period"] = {
+                "date_start": self.date_start.date().toString("yyyy-MM-dd"),
+                "date_end": self.date_end.date().toString("yyyy-MM-dd")
+            }
+        get_widget_from_dict(self, self.cfg["period"])
+        parameters = self.mapping["parameters"]
+        for name, valeurs in parameters.items():
+            line_edit, checkbox = valeurs
+            text = line_edit.text().strip()
+            is_list = checkbox.isChecked()
+            if text is None or len(text) == 0:
+                continue
+            values = self.parse_range_or_list(text)
+            if values:
+                self.cfg["parameters"][name] = {
+                    "values": values,
+                    "type": "list" if is_list else "range",
+                    "source": text
+                }
+        lstm = self.mapping["lstm"]
+        for name, valeurs in lstm.items():
+            line_edit, checkbox = valeurs
+            text = line_edit.text().strip()
+            is_list = checkbox.isChecked()
+            if not text:
+                continue
+            values = self.parse_range_or_list(text)
+            if values:
+                self.cfg["lstm"][name] = {
+                    "values": values,
+                    "type": "list" if is_list else "range",
+                    "source": text
+                }
+        get_widget_from_list(self, self.cfg["features"])
+        get_widget_from_dict(self, self.cfg["target"])
+        get_widget_from_dict(self, self.cfg["open_rules"])
+        get_widget_from_dict(self, self.cfg["close_rules"])
+        get_widget_from_dict(self, self.cfg["live"])
+        return self.cfg
 
-    def export_grid(self):
-        pass
+    def set_optim_config(self, config):
+        # Période
+        if "period" in config:
+            start = QDate.fromString(config["period"].get("date_start", "2023-01-01"), "yyyy-MM-dd")
+            end = QDate.fromString(config["period"].get("date_end", "2025-11-13"), "yyyy-MM-dd")
+            self.date_start.setDate(start)
+            self.date_end.setDate(end)
+        # Paramètres
+        for name, data in config.get("parameters", {}).items():
+            if name in self.mapping:
+                line_edit, checkbox = self.mapping[name]
+                source = data.get("source", ",".join(map(str, data["values"])))
+                line_edit.setText(source)
+                checkbox.setChecked(data.get("type") == "list")
+        # lstm
+        for name, data in config.get("lstm", {}).items():
+            if name in self.mapping:
+                line_edit, checkbox = self.mapping[name]
+                source = data.get("source", ",".join(map(str, data["values"])))
+                line_edit.setText(source)
+                checkbox.setChecked(data.get("type") == "list")
+        set_widget_from_list(self, "features", self.cfg["features"])
+        set_widget_from_dict(self, self.cfg["target"])
+        set_widget_from_dict(self, self.cfg["open_rules"])
+        set_widget_from_dict(self, self.cfg["close_rules"])
+        set_widget_from_dict(self, self.cfg["live"])
 
-    def start_optimization(self):
-        result = self.generate_grid()
-        if not result:
+        self.cfg = config
+
+    def save_config(self):
+        config = self.get_optim_config()
+        if not config["parameters"]:
+            QMessageBox.warning(self, "Vide", "Aucun paramètre défini !")
             return
-        grid, start, end = result
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Sauvegarder config optimisation", "config_optim.json", "JSON (*.json)"
+        )
+        if path:
+            try:
+                with open(path, 'w', encoding='utf-8') as f:
+                    json.dump(config, f, indent=4, ensure_ascii=False)
+                QMessageBox.information(self, "Succès", f"Sauvegardé : {path}")
+            except Exception as e:
+                QMessageBox.critical(self, "Erreur", f"Échec sauvegarde :\n{e}")
 
+    def load_config(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Charger config optimisation", "", "JSON (*.json)"
+        )
+        if not path:
+            return
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+            self.set_optim_config(config)
+            QMessageBox.information(self, "Chargé", f"Config chargée")
+        except Exception as e:
+            QMessageBox.critical(self, "Erreur", f"Impossible de charger :\n{e}")
+
+    def validate_and_show(self):
+        """Affiche un aperçu lisible des paramètres (pour debug ou lancement)"""
+        config = self.get_optim_config()
+        total = 1
+        details = ["=== PARAMÈTRES D'OPTIMISATION ==="]
+        details.append(f"Période : {config['period']['start']} → {config['period']['end']}")
+
+        for name, data in config["parameters"].items():
+            count = len(data["values"])
+            total *= count
+            details.append(f"{name}: {data['values']} ({count} valeurs) ← {data['source']}")
+
+        details.append(f"\nTOTAL COMBINAISONS : {total:,}")
+
+        QMessageBox.information(self, "Validation Optimisation", "\n".join(details))
+        print(json.dumps(config, indent=2))  # Pour debug console
+# ==========================================================
+    def start_optimization(self):
+        config = self.get_optim_config()
+        start = self.date_start.date()
+        end = self.date_end.date()
         # === CHARGE DONNÉES RÉELLES MT5 ===   a adapter avec utils
         df = load_ticks('ETHUSD', None, start, end)
         if df is None or df.empty:
             QMessageBox.critical(self, "Erreur", "Aucune donnée pour cette période")
             return
-
         df['time'] = pd.to_datetime(df['time'])
-
         # === LANCE OPTIMISATION (exemple simple) ===
         best_profit = -float('inf')
         best_params = None
-
-        self.opt_progress.setMaximum(len(grid))
+        grid = {}
+        for name, data in config.get('parameters', {}).items():
+            if name in self.mapping:
+                grid[name] = data.get('values', [])
+        self.opt_progress.setMaximum(len(generate_param_combinations(grid)))
         for i, params in enumerate(grid):
             profit = self.backtest(df, params)
             if profit > best_profit:
@@ -105,46 +257,9 @@ class OptimizationTab(QWidget):
         for k, v in params.items():
             msg += f"• {k} = {v}<br>"
         QMessageBox.information(self, "Optimisation Terminées", msg)
-
-    def _parse_values(self, text, is_list):
-        if not text.strip():
-            return []
-        if is_list:
-            try:
-                return [float(x.strip()) for x in text.split(",")]
-            except:
-                return []
-        else:
-            try:
-                start, end, step = map(float, text.replace(" ", "").split("-"))
-                return list(np.arange(start, end + step, step))
-            except:
-                return []
-
-        # --- old version ---------------------------------------
-
-    """
-    def load_config(self):
-        if os.path.exists(self.config_file):
-            with open(self.config_file, 'r') as f:
-                return json.load(f)
-        return {}
-
-    def save_config(self):
-        config = {
-            "renko_size": self.get_list_from_layout(self.renko_inputs),
-            "seq_len": [int(x) for x in self.get_list_from_layout(self.seq_inputs)],
-            "ema_period": [int(x) for x in self.get_list_from_layout(self.ema_inputs)],
-            "features": [["EMA", "RSI", "MACD_hist", "time_vol"]],
-            "start_date": self.start_date.text(),
-            "end_date": self.end_date.text()
-        }
-        with open(self.config_file, 'w') as f:
-            json.dump(config, f, indent=2)
-        self.parent.statusBar().showMessage("Config optimisation sauvegardée")
-
-        """
 """
+        # --- old version ---------------------------------------
+        start_date, end_date = self.get_date_range()
         filename = 'ticks_' + start_date.strftime('%Y_%m_%d_%H_%M_%S') + end_date.strftime('%Y_%m_%d_%H_%M_%S') + '.pkl'
         df_cache = pd.DataFrame()
         if not os.path.exists(filename):
@@ -233,7 +348,6 @@ class OptimizationTab(QWidget):
             f"→ Config live générée : config_live.json"
         )
 
-
     def retrain_and_save(self):
         try:
             self.label.setText("Retrain en cours...")
@@ -284,6 +398,7 @@ class OptimizationTab(QWidget):
         except Exception as e:
             QMessageBox.critical(self, "Erreur", f"Échec du retrain :\n{str(e)}")
             self.label.setText("Erreur lors du retrain.")
+
 
 """
 def save_optimization_result(result, model, scaler):

@@ -22,8 +22,9 @@ class PmxRkoMainWindow(QMainWindow):
         self.main_tabs.addTab(self.exec_tab, "Trading live")
         self.main_tabs.addTab(self.opt_tab, "Optimisation")
 
-    def start_execution(self, simulator):
-        simulator.timer.start(100)  # ← Le timer est DANS le simulateur
+    def start_execution(self, simulator, period):
+        print("simulator timer", period)
+        simulator.timer.start(period)  # ← Le timer est DANS le simulateur
 
     def get_config_live(self):
         return self.live_config

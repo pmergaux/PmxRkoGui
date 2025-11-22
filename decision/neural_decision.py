@@ -14,27 +14,32 @@ class NeuralDecision:
         NONE (0)  → Neutre (HOLD)
         None      → Pas de signal (erreur, données insuffisantes)
     """
-    def __init__(self, model_path: str = "model/lstm_model.h5", scaler_path: str = "model/scaler.pkl"):
+    def __init__(self, param: dict, model_path: str, scaler_path: str):
+        self.param = param
         self.model = load_model(model_path)
         self.scaler = load_scaler(scaler_path)
 
-    def predict(self, df: pd.DataFrame, seq_len: int = 30, feature_cols: List[str] = None) -> Optional[int]:
+    def predict(self, df: pd.DataFrame) -> Optional[int]:
         """
         Retourne un signal via constantes centralisées.
         """
-        if len(df) < seq_len:
-            return None  # Données insuffisantes
-
-        if feature_cols is None:
-            feature_cols = get_feature_columns(df)
-
+        lstm = self.param.get('lstm')
+        features = self.param.get('features')
+        target = self.param.get('target')
+        if lstm is None or features is None or target is None:
+            raise "revoir paramètrage"
+        seq_len = lstm.get('seq_len')
+        target_col = target.get('column', None)
+        if len(df) < seq_len or target_col is None:
+            raise "Données insuffisantes ou target missing"
+        if target.get('include', False) and target_col not in features:
+            features.append(target_col)
         try:
-            seq = prepare_sequence(df, feature_cols, seq_len)
+            seq = prepare_sequence(df, features, seq_len)
             pred = predict_sequence(self.model, self.scaler, seq)
         except Exception as e:
             print(f"Erreur prédiction LSTM : {e}")
             return None  # Erreur → pas de signal
-
         if pred > 0.6:
             return BUY      # 1
         elif pred < 0.4:

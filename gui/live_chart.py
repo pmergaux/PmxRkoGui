@@ -8,13 +8,16 @@ import pandas as pd
 import json
 import numpy as np
 
-from simulation.simulator import RenkoSimulator
+from utils.utils import safe_float
 
 
 class LiveChart(QWidget):
     def __init__(self, parent=None):
         super().__init__()
         self.parent = parent
+        self.lastTime = None
+        self.lastSigc = 0
+        self.origSigc = 0
         self.webview = QWebEngineView()
         layout = QVBoxLayout(self)
         layout.addWidget(self.webview)
@@ -43,7 +46,6 @@ class LiveChart(QWidget):
                     hovermode: 'closest'
                 };
                 Plotly.newPlot('chart', [], layout, {responsive: true});
-
                 function updateChart(data) {
                     Plotly.react('chart', data.traces, data.layout);
                 }
@@ -69,6 +71,15 @@ class LiveChart(QWidget):
         current_bid = data.get('current_bid', 0)
         if df is None or df.empty:
             return
+
+        sigcChanged = False
+        if self.lastTime is None or self.lastTime != df.index[-1]:
+            self.lastTime = df.index[-1]
+            self.origSigc = df['sigc'].iloc[-1] if 'sigc' in df.columns and df['sigc'].iloc[-1] == 4 else 0
+        else:
+            newSigc = df['sigc'].iloc[-1] if 'sigc' in df.columns and df['sigc'].iloc[-1] == 4 else 0
+            if newSigc != self.origSigc:
+                sigcChanged = True
 
         cl_value = 'close_renko' if 'close_renko' in df.columns else 'close'
         op_value = 'open_renko' if 'open_renko' in df.columns else 'open'
@@ -101,17 +112,21 @@ class LiveChart(QWidget):
                 show_legend = True
                 legend_down_shown = True
 
-            # Hover point
-            hover_text = (
-                f"<b>Renko Brick</b><br>"
-                f"Time: {t.strftime('%H:%M:%S')}<br>"
-                f"Open: {open_val:.2f}<br>"
-                f"Close: {close_val:.2f}<br>"
-                f"High: {high:.2f}<br>"
-                f"Low: {low:.2f}<br>"
-                f"RSI: {row.get('RSI', 'N/A'):.1f}<br>"
-                f"MACD: {row.get('MACD_line', 'N/A'):.6f}"
-            )
+            # === HOVER SÉCURISÉ ===
+            try:
+                hover_text = (
+                    f"<b>Renko Brick</b><br>"
+                    f"Time: {t.strftime('%H:%M:%S')}<br>"
+                    f"Open: {safe_float(open_val, fmt='.2f')}<br>"
+                    f"Close: {safe_float(close_val, fmt='.2f')}<br>"
+                    f"High: {safe_float(high, fmt='.2f')}<br>"
+                    f"Low: {safe_float(low, fmt='.2f')}<br>"
+                    f"RSI: {safe_float(row.get('RSI'), fmt='.1f')}<br>"
+                    f"MACD: {safe_float(row.get('MACD_line'), fmt='.3f')}"
+                )
+            except Exception as e:
+                print(f"Hover error: {e}")
+                hover_text = "Erreur hover"
 
             traces.append({
                 'type': 'scatter', 'x': [self._to_serializable(t)], 'y': [base + brick_size / 2],
@@ -165,17 +180,17 @@ class LiveChart(QWidget):
                 traces.append({
                     'type': 'scatter', 'x': [self._to_serializable(t) for t in bb_mavg.index],
                     'y': bb_mavg.values.tolist(), 'mode': 'lines',
-                    'line': {'color': 'blue', 'width': 2}, 'name': 'BB Moyenne'
+                    'line': {'color': 'blue', 'width': 1}, 'name': 'BB Moyenne'
                 })
                 traces.append({
                     'type': 'scatter', 'x': [self._to_serializable(t) for t in bb_hband.index],
                     'y': bb_hband.values.tolist(), 'mode': 'lines',
-                    'line': {'color': 'gray', 'dash': 'dash', 'width': 1.5}, 'name': 'BB Haut', 'showlegend': False
+                    'line': {'color': 'gray', 'dash': 'dash', 'width': 1}, 'name': 'BB Haut', 'showlegend': False
                 })
                 traces.append({
                     'type': 'scatter', 'x': [self._to_serializable(t) for t in bb_lband.index],
                     'y': bb_lband.values.tolist(), 'mode': 'lines',
-                    'line': {'color': 'gray', 'dash': 'dash', 'width': 1.5}, 'name': 'BB Bas', 'showlegend': False
+                    'line': {'color': 'gray', 'dash': 'dash', 'width': 1}, 'name': 'BB Bas', 'showlegend': False
                 })
 
         # === SIGNAUX (Rules) ===
@@ -200,18 +215,29 @@ class LiveChart(QWidget):
         if 'sigc' in df.columns:
             clos_5 = df[df['sigc'] == 5]
             clos_4 = df[df['sigc'] == 4]
+            colorc = 'purple' if not sigcChanged and t==self.lastTime else 'pink'
+            """
+            clos_6 = df[df['sigc'] == 6]
+            if not clos_6.empty:
+                traces.append({
+                    'type': 'scatter', 'x': [self._to_serializable(t) for t in clos_6.index],
+                    'y': clos_6[cl_value].tolist(), 'mode': 'markers',
+                    'marker': {'symbol': 'circle', 'color': 'blue', 'size': 5},
+                    'name': 'Clôture (6)'
+                })
             if not clos_5.empty:
                 traces.append({
                     'type': 'scatter', 'x': [self._to_serializable(t) for t in clos_5.index],
                     'y': clos_5[cl_value].tolist(), 'mode': 'markers',
-                    'marker': {'symbol': 'circle', 'color': 'orange', 'size': 6},
+                    'marker': {'symbol': 'circle', 'color': 'orange', 'size': 5},
                     'name': 'Clôture (5)'
                 })
+            """
             if not clos_4.empty:
                 traces.append({
                     'type': 'scatter', 'x': [self._to_serializable(t) for t in clos_4.index],
                     'y': clos_4[cl_value].tolist(), 'mode': 'markers',
-                    'marker': {'symbol': 'circle', 'color': 'purple', 'size': 6},
+                    'marker': {'symbol': 'circle', 'color': colorc, 'size': 5},
                     'name': 'Clôture (4)'
                 })
 
@@ -224,14 +250,14 @@ class LiveChart(QWidget):
                 traces.append({
                     'type': 'scatter', 'x': [self._to_serializable(t) for t in buy_ia.index],
                     'y': (buy_ia[cl_value] + scale).tolist(), 'mode': 'markers',
-                    'marker': {'symbol': 'star', 'color': 'cyan', 'size': 14},
+                    'marker': {'symbol': 'star', 'color': 'cyan', 'size': 9},
                     'name': 'Achat (IA)'
                 })
             if not sell_ia.empty:
                 traces.append({
                     'type': 'scatter', 'x': [self._to_serializable(t) for t in sell_ia.index],
                     'y': (sell_ia[cl_value] - scale).tolist(), 'mode': 'markers',
-                    'marker': {'symbol': 'star', 'color': 'magenta', 'size': 14},
+                    'marker': {'symbol': 'star', 'color': 'magenta', 'size': 9},
                     'name': 'Vente (IA)'
                 })
 

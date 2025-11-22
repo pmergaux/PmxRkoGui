@@ -6,19 +6,25 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>718</width>
-    <height>419</height>
+    <width>877</width>
+    <height>643</height>
    </rect>
   </property>
   <property name="maximumSize">
    <size>
-    <width>718</width>
+    <width>1920</width>
     <height>16777215</height>
    </size>
   </property>
   <layout class="QHBoxLayout">
    <item>
     <widget class="QGroupBox" name="group_params">
+     <property name="maximumSize">
+      <size>
+       <width>250</width>
+       <height>16777215</height>
+      </size>
+     </property>
      <property name="title">
       <string>Paramètres généraux</string>
      </property>
@@ -73,7 +79,7 @@
        </widget>
       </item>
       <item row="3" column="1">
-       <widget class="QLineEdit" name="threshold_buy">
+       <widget class="QLineEdit" name="lstm_threshold_buy">
         <property name="text">
          <string>0.60</string>
         </property>
@@ -87,26 +93,9 @@
        </widget>
       </item>
       <item row="4" column="1">
-       <widget class="QLineEdit" name="threshold_sell">
+       <widget class="QLineEdit" name="lstm_threshold_sell">
         <property name="text">
          <string>0.40</string>
-        </property>
-       </widget>
-      </item>
-      <item row="6" column="0">
-       <widget class="QLabel" name="rsiPeriodLabel">
-        <property name="text">
-         <string>Rsi period</string>
-        </property>
-       </widget>
-      </item>
-      <item row="6" column="1">
-       <widget class="QLineEdit" name="rsi_period">
-        <property name="inputMask">
-         <string>##</string>
-        </property>
-        <property name="text">
-         <string>14</string>
         </property>
        </widget>
       </item>
@@ -162,14 +151,14 @@
        </widget>
       </item>
       <item row="10" column="0">
-       <widget class="QLabel" name="cciPeriodLabel">
+       <widget class="QLabel" name="StkRsiPeriodLabel">
         <property name="text">
-         <string>Cci period</string>
+         <string>Stk rsi period</string>
         </property>
        </widget>
       </item>
       <item row="10" column="1">
-       <widget class="QLineEdit" name="cci_period">
+       <widget class="QLineEdit" name="stk_rsi_period">
         <property name="inputMask">
          <string>##</string>
         </property>
@@ -195,6 +184,110 @@
         </property>
        </widget>
       </item>
+      <item row="13" column="0">
+       <widget class="QLabel" name="rsiHighLabel">
+        <property name="text">
+         <string>rsi high</string>
+        </property>
+       </widget>
+      </item>
+      <item row="13" column="1">
+       <widget class="QLineEdit" name="rsi_high">
+        <property name="text">
+         <string>70</string>
+        </property>
+       </widget>
+      </item>
+      <item row="14" column="0">
+       <widget class="QLabel" name="rsiLowLabel">
+        <property name="text">
+         <string>rsi low</string>
+        </property>
+       </widget>
+      </item>
+      <item row="14" column="1">
+       <widget class="QLineEdit" name="rsi_low">
+        <property name="text">
+         <string>30</string>
+        </property>
+       </widget>
+      </item>
+      <item row="11" column="0">
+       <widget class="QLabel" name="rsiPeriodLabel">
+        <property name="text">
+         <string>Rsi period</string>
+        </property>
+       </widget>
+      </item>
+      <item row="11" column="1">
+       <widget class="QLineEdit" name="rsi_period">
+        <property name="inputMask">
+         <string>##</string>
+        </property>
+        <property name="text">
+         <string>14</string>
+        </property>
+       </widget>
+      </item>
+      <item row="15" column="0">
+       <widget class="QLabel" name="atrPeriodLabel">
+        <property name="text">
+         <string>Atr period</string>
+        </property>
+       </widget>
+      </item>
+      <item row="15" column="1">
+       <widget class="QLineEdit" name="atr_period">
+        <property name="text">
+         <string>14</string>
+        </property>
+       </widget>
+      </item>
+      <item row="19" column="0">
+       <widget class="QLabel" name="cciHighLabel">
+        <property name="text">
+         <string>cci high</string>
+        </property>
+       </widget>
+      </item>
+      <item row="19" column="1">
+       <widget class="QLineEdit" name="cci_high">
+        <property name="text">
+         <string>100</string>
+        </property>
+       </widget>
+      </item>
+      <item row="20" column="0">
+       <widget class="QLabel" name="cciLowLabel">
+        <property name="text">
+         <string>cci low</string>
+        </property>
+       </widget>
+      </item>
+      <item row="20" column="1">
+       <widget class="QLineEdit" name="cci_low">
+        <property name="text">
+         <string>-100</string>
+        </property>
+       </widget>
+      </item>
+      <item row="17" column="1">
+       <widget class="QLineEdit" name="cci_period">
+        <property name="inputMask">
+         <string>##</string>
+        </property>
+        <property name="text">
+         <string>14</string>
+        </property>
+       </widget>
+      </item>
+      <item row="17" column="0">
+       <widget class="QLabel" name="cciPeriodLabel_">
+        <property name="text">
+         <string>Cci period</string>
+        </property>
+       </widget>
+      </item>
      </layout>
     </widget>
    </item>
@@ -204,6 +297,36 @@
       <string>Indicateurs et Cible</string>
      </property>
      <layout class="QGridLayout" name="grid_features">
+      <item row="2" column="1">
+       <widget class="QComboBox" name="feat_3"/>
+      </item>
+      <item row="4" column="1">
+       <widget class="QComboBox" name="feat_5"/>
+      </item>
+      <item row="1" column="1">
+       <widget class="QComboBox" name="feat_2"/>
+      </item>
+      <item row="6" column="0">
+       <widget class="QLabel" name="label">
+        <property name="text">
+         <string>Cible</string>
+        </property>
+       </widget>
+      </item>
+      <item row="8" column="1">
+       <widget class="QCheckBox" name="target_include">
+        <property name="text">
+         <string>Inclure cible</string>
+        </property>
+       </widget>
+      </item>
+      <item row="2" column="0">
+       <widget class="QLabel" name="label">
+        <property name="text">
+         <string>Indicateur 3</string>
+        </property>
+       </widget>
+      </item>
       <item row="0" column="0">
        <widget class="QLabel" name="label">
         <property name="text">
@@ -211,103 +334,10 @@
         </property>
        </widget>
       </item>
-      <item row="2" column="1">
-       <widget class="QComboBox" name="feat_3">
-        <item>
-         <property name="text">
-          <string/>
-         </property>
-        </item>
-        <item>
-         <property name="text">
-          <string>LSTM</string>
-         </property>
-        </item>
-        <item>
-         <property name="text">
-          <string>EMA</string>
-         </property>
-        </item>
-        <item>
-         <property name="text">
-          <string>RSI</string>
-         </property>
-        </item>
-        <item>
-         <property name="text">
-          <string>MACD_line</string>
-         </property>
-        </item>
-        <item>
-         <property name="text">
-          <string>CCI</string>
-         </property>
-        </item>
-       </widget>
-      </item>
-      <item row="6" column="0">
-       <widget class="QLabel" name="label">
-        <property name="text">
-         <string>Type cible</string>
-        </property>
-       </widget>
+      <item row="0" column="1">
+       <widget class="QComboBox" name="feat_1"/>
       </item>
       <item row="7" column="1">
-       <widget class="QCheckBox" name="target_include">
-        <property name="text">
-         <string>Inclure cible</string>
-        </property>
-       </widget>
-      </item>
-      <item row="1" column="0">
-       <widget class="QLabel" name="label">
-        <property name="text">
-         <string>Indicateur 2</string>
-        </property>
-       </widget>
-      </item>
-      <item row="0" column="1">
-       <widget class="QComboBox" name="feat_1">
-        <item>
-         <property name="text">
-          <string/>
-         </property>
-        </item>
-        <item>
-         <property name="text">
-          <string>LSTM</string>
-         </property>
-        </item>
-        <item>
-         <property name="text">
-          <string>EMA</string>
-         </property>
-        </item>
-        <item>
-         <property name="text">
-          <string>RSI</string>
-         </property>
-        </item>
-        <item>
-         <property name="text">
-          <string>MACD_line</string>
-         </property>
-        </item>
-        <item>
-         <property name="text">
-          <string>CCI</string>
-         </property>
-        </item>
-       </widget>
-      </item>
-      <item row="5" column="0">
-       <widget class="QLabel" name="label">
-        <property name="text">
-         <string>Cible</string>
-        </property>
-       </widget>
-      </item>
-      <item row="6" column="1">
        <widget class="QComboBox" name="target_type">
         <item>
          <property name="text">
@@ -326,101 +356,41 @@
         </item>
        </widget>
       </item>
-      <item row="5" column="1">
-       <widget class="QComboBox" name="target_col">
-        <item>
-         <property name="text">
-          <string>close</string>
-         </property>
-        </item>
-        <item>
-         <property name="text">
-          <string>EMA</string>
-         </property>
-        </item>
-        <item>
-         <property name="text">
-          <string>RSI</string>
-         </property>
-        </item>
-       </widget>
-      </item>
       <item row="3" column="1">
-       <widget class="QComboBox" name="feat_4">
-        <item>
-         <property name="text">
-          <string/>
-         </property>
-        </item>
-        <item>
-         <property name="text">
-          <string>LSTM</string>
-         </property>
-        </item>
-        <item>
-         <property name="text">
-          <string>EMA</string>
-         </property>
-        </item>
-        <item>
-         <property name="text">
-          <string>RSI</string>
-         </property>
-        </item>
-        <item>
-         <property name="text">
-          <string>MACD_line</string>
-         </property>
-        </item>
-        <item>
-         <property name="text">
-          <string>CCI</string>
-         </property>
-        </item>
-       </widget>
+       <widget class="QComboBox" name="feat_4"/>
       </item>
-      <item row="1" column="1">
-       <widget class="QComboBox" name="feat_2">
-        <item>
-         <property name="text">
-          <string/>
-         </property>
-        </item>
-        <item>
-         <property name="text">
-          <string>LSTM</string>
-         </property>
-        </item>
-        <item>
-         <property name="text">
-          <string>EMA</string>
-         </property>
-        </item>
-        <item>
-         <property name="text">
-          <string>RSI</string>
-         </property>
-        </item>
-        <item>
-         <property name="text">
-          <string>MACD_line</string>
-         </property>
-        </item>
-        <item>
-         <property name="text">
-          <string>CCI</string>
-         </property>
-        </item>
-       </widget>
-      </item>
-      <item row="2" column="0">
+      <item row="7" column="0">
        <widget class="QLabel" name="label">
         <property name="text">
-         <string>Indicateur 3</string>
+         <string>Type cible</string>
         </property>
        </widget>
       </item>
-      <item row="4" column="1">
+      <item row="6" column="1">
+       <widget class="QComboBox" name="target_col"/>
+      </item>
+      <item row="3" column="0">
+       <widget class="QLabel" name="label_2">
+        <property name="text">
+         <string>indicateur 4</string>
+        </property>
+       </widget>
+      </item>
+      <item row="4" column="0">
+       <widget class="QLabel" name="label_3">
+        <property name="text">
+         <string>indicateur 5</string>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="0">
+       <widget class="QLabel" name="label">
+        <property name="text">
+         <string>Indicateur 2</string>
+        </property>
+       </widget>
+      </item>
+      <item row="5" column="1">
        <widget class="QCheckBox" name="time_live">
         <property name="text">
          <string>time live</string>
@@ -430,50 +400,376 @@
         </property>
        </widget>
       </item>
-      <item row="3" column="0">
-       <widget class="QLabel" name="label_2">
-        <property name="text">
-         <string>indicateur 4</string>
-        </property>
-       </widget>
-      </item>
      </layout>
     </widget>
    </item>
    <item>
-    <widget class="QGroupBox" name="group_rules">
-     <property name="title">
-      <string>Règles manuelles</string>
-     </property>
-     <layout class="QVBoxLayout">
-      <item>
+    <layout class="QVBoxLayout" name="verticalLayout">
+     <item>
+      <widget class="QGroupBox" name="groupBox_2">
+       <property name="maximumSize">
+        <size>
+         <width>16777215</width>
+         <height>150</height>
+        </size>
+       </property>
+       <property name="styleSheet">
+        <string notr="true"/>
+       </property>
+       <property name="title">
+        <string>Règles Clôtures</string>
+       </property>
+       <widget class="QCheckBox" name="close_ema">
+        <property name="geometry">
+         <rect>
+          <x>20</x>
+          <y>60</y>
+          <width>150</width>
+          <height>25</height>
+         </rect>
+        </property>
+        <property name="minimumSize">
+         <size>
+          <width>150</width>
+          <height>0</height>
+         </size>
+        </property>
+        <property name="text">
+         <string>EMA &lt;&gt; close</string>
+        </property>
+       </widget>
+       <widget class="QCheckBox" name="close_sens">
+        <property name="geometry">
+         <rect>
+          <x>20</x>
+          <y>110</y>
+          <width>95</width>
+          <height>25</height>
+         </rect>
+        </property>
+        <property name="text">
+         <string>Direction &gt;</string>
+        </property>
+       </widget>
+      </widget>
+     </item>
+     <item>
+      <widget class="QGroupBox" name="group_rules">
+       <property name="maximumSize">
+        <size>
+         <width>16777215</width>
+         <height>200</height>
+        </size>
+       </property>
+       <property name="title">
+        <string>Règles ouvertures</string>
+       </property>
        <widget class="QCheckBox" name="rule_rsi">
+        <property name="geometry">
+         <rect>
+          <x>0</x>
+          <y>80</y>
+          <width>113</width>
+          <height>25</height>
+         </rect>
+        </property>
         <property name="text">
          <string>30 &lt; RSI &lt; 70</string>
         </property>
        </widget>
-      </item>
-      <item>
        <widget class="QCheckBox" name="rule_ema">
+        <property name="geometry">
+         <rect>
+          <x>0</x>
+          <y>160</y>
+          <width>138</width>
+          <height>25</height>
+         </rect>
+        </property>
         <property name="text">
          <string>EMA croise close</string>
         </property>
        </widget>
-      </item>
-      <item>
        <widget class="QCheckBox" name="rule_macd">
+        <property name="geometry">
+         <rect>
+          <x>0</x>
+          <y>120</y>
+          <width>155</width>
+          <height>25</height>
+         </rect>
+        </property>
         <property name="text">
          <string>MACD croise signal</string>
         </property>
        </widget>
-      </item>
-     </layout>
-    </widget>
+      </widget>
+     </item>
+     <item>
+      <widget class="QGroupBox" name="groupBox_3">
+       <property name="title">
+        <string>Trading</string>
+       </property>
+       <widget class="QLineEdit" name="sl">
+        <property name="geometry">
+         <rect>
+          <x>100</x>
+          <y>100</y>
+          <width>41</width>
+          <height>29</height>
+         </rect>
+        </property>
+       </widget>
+       <widget class="QLabel" name="label_4">
+        <property name="geometry">
+         <rect>
+          <x>10</x>
+          <y>40</y>
+          <width>63</width>
+          <height>20</height>
+         </rect>
+        </property>
+        <property name="text">
+         <string>symbol</string>
+        </property>
+       </widget>
+       <widget class="QComboBox" name="symbol">
+        <property name="geometry">
+         <rect>
+          <x>90</x>
+          <y>30</y>
+          <width>91</width>
+          <height>30</height>
+         </rect>
+        </property>
+        <item>
+         <property name="text">
+          <string>ETHUSD</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>BTCUSD</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>SOLUSD</string>
+         </property>
+        </item>
+       </widget>
+       <widget class="QComboBox" name="timeframe">
+        <property name="geometry">
+         <rect>
+          <x>90</x>
+          <y>60</y>
+          <width>78</width>
+          <height>30</height>
+         </rect>
+        </property>
+        <item>
+         <property name="text">
+          <string>1m</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>2m</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>3m</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>4m</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>5m</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>10m</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>15m</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>20m</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>30m</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>1h</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>2h</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>4h</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>12h</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>1d</string>
+         </property>
+        </item>
+       </widget>
+       <widget class="QLabel" name="label_5">
+        <property name="geometry">
+         <rect>
+          <x>10</x>
+          <y>70</y>
+          <width>81</width>
+          <height>20</height>
+         </rect>
+        </property>
+        <property name="text">
+         <string>Timeframe</string>
+        </property>
+       </widget>
+       <widget class="QLabel" name="label_6">
+        <property name="geometry">
+         <rect>
+          <x>10</x>
+          <y>110</y>
+          <width>63</width>
+          <height>20</height>
+         </rect>
+        </property>
+        <property name="text">
+         <string>stop loss</string>
+        </property>
+       </widget>
+       <widget class="QLineEdit" name="tp">
+        <property name="geometry">
+         <rect>
+          <x>100</x>
+          <y>130</y>
+          <width>41</width>
+          <height>29</height>
+         </rect>
+        </property>
+       </widget>
+       <widget class="QLabel" name="label_7">
+        <property name="geometry">
+         <rect>
+          <x>10</x>
+          <y>140</y>
+          <width>81</width>
+          <height>20</height>
+         </rect>
+        </property>
+        <property name="text">
+         <string>take profit</string>
+        </property>
+       </widget>
+       <widget class="QLineEdit" name="volume">
+        <property name="geometry">
+         <rect>
+          <x>100</x>
+          <y>160</y>
+          <width>51</width>
+          <height>29</height>
+         </rect>
+        </property>
+       </widget>
+       <widget class="QLabel" name="label_8">
+        <property name="geometry">
+         <rect>
+          <x>10</x>
+          <y>170</y>
+          <width>63</width>
+          <height>20</height>
+         </rect>
+        </property>
+        <property name="text">
+         <string>volume</string>
+        </property>
+       </widget>
+       <widget class="QLabel" name="label_9">
+        <property name="geometry">
+         <rect>
+          <x>10</x>
+          <y>200</y>
+          <width>51</width>
+          <height>20</height>
+         </rect>
+        </property>
+        <property name="text">
+         <string>magic</string>
+        </property>
+       </widget>
+       <widget class="QLabel" name="label_10">
+        <property name="geometry">
+         <rect>
+          <x>10</x>
+          <y>230</y>
+          <width>41</width>
+          <height>20</height>
+         </rect>
+        </property>
+        <property name="text">
+         <string>nom</string>
+        </property>
+       </widget>
+       <widget class="QLineEdit" name="magic">
+        <property name="geometry">
+         <rect>
+          <x>70</x>
+          <y>190</y>
+          <width>113</width>
+          <height>29</height>
+         </rect>
+        </property>
+       </widget>
+       <widget class="QLineEdit" name="name">
+        <property name="geometry">
+         <rect>
+          <x>70</x>
+          <y>220</y>
+          <width>113</width>
+          <height>29</height>
+         </rect>
+        </property>
+       </widget>
+      </widget>
+     </item>
+    </layout>
    </item>
    <item>
     <widget class="QGroupBox" name="groupBox">
+     <property name="minimumSize">
+      <size>
+       <width>100</width>
+       <height>0</height>
+      </size>
+     </property>
      <property name="title">
-      <string>                       </string>
+      <string/>
      </property>
      <widget class="QPushButton" name="btn_validate">
       <property name="geometry">
@@ -515,9 +811,6 @@
       </property>
      </widget>
     </widget>
-   </item>
-   <item>
-    <layout class="QHBoxLayout"/>
    </item>
   </layout>
  </widget>
