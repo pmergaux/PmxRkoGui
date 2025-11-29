@@ -1,17 +1,17 @@
 import argparse
-import json
 import platform
 
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 import re
-import math
 
-from PyQt5.QtWidgets import QFileDialog, QWidget
 from sklearn.linear_model import LinearRegression
 import sys
 from mt5linux import MetaTrader5
+
+import os
+import pickle
 
 
 MAXQ = 4        # nb max des signaux de trading
@@ -214,22 +214,7 @@ def load_ticks(symbol, cl, start_date, end_date):
         ticks = cl.get_ticks_from(symbol, start_date, end_date)
     if ticks is None or len(ticks) == 0:
         raise Exception('None ticks or empty')
-    """
-    print(ticks.tail(20))
-    dfin = ticks.index[-1]
-    print(type(dfin), dfin)
-    ddeb = dfin - timedelta(seconds=60)
-    print(type(ddeb), ddeb)
-    dt = ticks.loc[ddeb:dfin]
-    print(dt)
-    dt = ticks[(ticks.index >= ddeb) & (ticks.index <= dfin)]
-    print(dt)
-    raise 'fin de test'
-    """
     return ticks
-
-import os
-import pickle
 
 def load_ticks_from_pickle(filename, symbol, cl, decalage=280):
     #print(filename)
@@ -245,6 +230,18 @@ def load_ticks_from_pickle(filename, symbol, cl, decalage=280):
             pickle.dump(tick_data, f)
     #print(len(tick_data), '\n', tick_data.tail(2))
     return tick_data
+
+def reload_ticks_from_pickle(filename, symbol, cl, date_start, date_end):
+    if os.path.exists(filename):
+        with open(filename, 'rb') as f:
+            tick_data = pickle.load(f)
+    else:
+        tick_data = load_ticks(symbol, cl, date_start, date_end)
+        with (open(filename, 'wb')) as f:
+            pickle.dump(tick_data, f)
+    #print(len(tick_data), '\n', tick_data.tail(2))
+    return tick_data
+
 
 # Fonction pour charger les données historiques
 def load_data(symbol, timeframe, start_date, end_date):
@@ -291,27 +288,6 @@ def load_data(symbol, timeframe, start_date, end_date):
     print(
         f"{datetime.now()} Nombre de barres générées : {len(df)}, volume_sum={df['volume'].sum()}, openinterest_sum={df['openinterest'].sum()}")
     return df
-
-
-def load_config(qui, filename=None, required=False):
-    if filename is None:
-        path, _ = QFileDialog.getOpenFileName(qui, "Charger config", "", "JSON (*.json)")
-    else:
-        path = filename
-    if os.path.exists(path):
-        with open(path, 'r') as f:
-            return json.load(f)
-    elif required:
-        raise FileNotFoundError(f"CONFIG OBLIGATOIRE MANQUANTE : {filename}")
-    else:
-        return {}
-
-def save_config(qui: QWidget, filename, cfg):
-    path, _ = QFileDialog.getSaveFileName(parent=None, caption="Sauver config", directory=filename, filter="JSON (*.json)")
-    if path:
-        with open(path, 'w') as f:
-            json.dump(cfg, f, indent=2)
-        qui.parent.statusBar().showMessage(f"Config sauvegardée : {path}")
 
 def safe_float(value, default='N/A', fmt='.2f'):
     """

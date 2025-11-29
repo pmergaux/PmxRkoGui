@@ -1,4 +1,8 @@
 # strategy/pmxrko.py
+import os
+
+import joblib
+import numpy as np
 import pandas as pd
 
 from .base import Strategy
@@ -8,6 +12,8 @@ from utils.utils import NONE, BUY, SELL, CLOSE, FCLOSE
 from datetime import datetime, timedelta, time
 from mt5linux import MetaTrader5
 from live.connexion import select_positions_magic
+import tensorflow as tf
+from tensorflow.keras.models import load_model
 
 class PmxRkoStrategy(Strategy):
     def __init__(self, parent, config):
@@ -19,8 +25,101 @@ class PmxRkoStrategy(Strategy):
         self.renko_time = None
         self.count_time = None
         self.debut = False
-        self.minimum = 50
+        self.minimum = config["lstm"]["lstm_seq_len"] * 4
         self.fopen = False
+        self.model = None
+        self.scaler = None
+
+    def create_sequences(self, df, features_cols, seq_len, target: dict):
+        X, y = [], []
+        data = df.copy()
+        data = data.dropna()
+        target_col = target['target_col']
+        try:
+            values = data[target_col].values
+            features = data[features_cols].values
+            target_type = target['target_type']
+            for i in range(len(data) - seq_len):
+                X.append(features[i:i + seq_len])
+                if target_type == 'direction':
+                    y.append(1 if values[i + seq_len] > values[i + seq_len - 1] else 0)
+                elif target_type == 'value':
+                    y.append(values[i+seq_len-1])
+                else:
+                    y.append((values[i + seq_len] - values[i + seq_len - 1]) / values[i + seq_len - 1])
+        except Exception as e:
+            print("pmxRko err create sequence ", e)
+        return np.array(X), np.array(y)
+
+    # si necessaire car load_model fourni de model déjà entraîné
+    def train_model(self, X_train, y_train, X_val, y_val, units, seq_len):
+        model = tf.keras.Sequential([
+            tf.keras.Input(shape=(seq_len, 5)),
+            tf.keras.layers.LSTM(units),
+            tf.keras.layers.Dense(1, activation='sigmoid')
+        ])
+        model.compile(optimizer='adam', loss='binary_crossentropy')
+        model.fit(X_train, y_train, validation_data=(X_val, y_val), epochs=5, verbose=0)
+        return model
+
+    def pred_model(self):
+        pass
+
+    def load_model_scaler(self):
+        self.scaler = joblib.load("models/simple_scaler.pkl") if os.path.exists("models/simple_scaler.pkl") else None
+        if not self.scaler:
+            from sklearn.preprocessing import StandardScaler
+            self.scaler = StandardScaler()
+        self.model = load_model('models/simple.keras')
+
+    def decision_ai(self, trace=False):
+        test_p = self.bricks[:-1]
+        lstm = self.cfg["lstm"]
+        target = self.cfg["target"]
+        features = self.cfg["features"]
+        features_cols = [] #features.copy()  # pour une distinction y compris des objets internes copie=copy.deepcopy(orig)
+        for col in features:
+            if len(col) > 1:
+                features_cols.append(col)
+        if target['target_include'] and not target["target_col"] in features_cols:
+            features_cols.append(target["target_col"])
+        X_test, y_test = self.create_sequences(test_p, features_cols, lstm['lstm_seq_len'], target)
+        if len(X_test) == 0:
+            return NONE
+        # Normaliser
+        #self.scaler.fit(X_test.reshape(-1, len(features_cols)))
+        #X_train = self.scaler.transform(X_train.reshape(-1, len(features_cols)).reshape(X_train.shape)
+        #X_val = self.scaler.transform(X_val.reshape(-1, len(features_cols)).reshape(X_val.shape)
+        X_test = self.scaler.transform(X_test.reshape(-1, len(features_cols))).reshape(X_test.shape)
+        # Entraîner
+        #model = train_model(X_train, y_train, X_val, y_val, config['lstm_units'], config['seq_len'])
+        #model.save("models/temp.keras")
+        # Prédire
+        proba = self.model.predict(X_test, verbose=0).flatten()
+        buy = proba > lstm['lstm_threshold_buy']
+        sell = proba < lstm['lstm_threshold_sell']
+        test_p['signal'] = np.where(buy, 1, np.where(sell, -1, 0))
+        # Backtest normalement inutile juste pour info
+        returns = np.diff(test_p[lstm['target_col']].values[-len(proba):])
+        profit = 0
+        trades = 0
+        wins = 0
+        for i in range(len(proba)):
+            if i >= len(returns): break
+            if buy[i]:
+                profit += returns[i]
+                trades += 1
+                if returns[i] > 0: wins += 1
+            elif sell[i]:
+                profit -= returns[i]
+                trades += 1
+                if returns[i] < 0: wins += 1
+        winrate = wins / trades if trades > 0 else 0
+        score = profit * 1000 + winrate * 100
+        print(f"Config: {self._param['renko_size']:.1f}, {lstm['lstm_seq_len']}, {lstm['lstm_units']} → Score: {score:.1f}")
+        if trace:
+            print("signal lstm\n", test_p['signal'].tail(-3))
+        return test_p['signal'].iloc[-1]
 
     def decision(self, trace=False):
         try:
@@ -64,7 +163,7 @@ class PmxRkoStrategy(Strategy):
             return
         try:
             if self.bricks is None:
-                self.decal = self.live.get('init_decal', 240)
+                self.decal = self.live.get('init_decal', 1000)
                 self.debut = True
                 Strategy.run(self)
                 try:
@@ -95,8 +194,8 @@ class PmxRkoStrategy(Strategy):
             if len(self.bricks) < self.minimum:
                 print(f'pas assez de renko {len(self.bricks)}, attendu={self.minimum}')
                 return
-            if len(self.bricks) > self.minimum + 9:
-                self.bricks = self.bricks[-self.minimum:]
+            if len(self.bricks) > self.minimum + 15:
+                self.bricks = self.bricks[-self.minimum-3:]
             if self.renko_time is None:
                 self.renko_time = self.bricks.index[-1]
                 print(f"{datetime.now()} {self.live['name']} start renko {self.renko_time} at {self.bricks['open_renko'].iloc[-1]:.2f}")
@@ -134,6 +233,7 @@ class PmxRkoStrategy(Strategy):
             self.positions = select_positions_magic(self.cl.get_positions_symbol(self.live['symbol']), self.live['magic'])
             lp = len(self.positions)
             dd, dj = self.decision(tdelta==0 and not self.fopen)
+            dai = self.decision_ai(True)
             try:
                 self.parent.update_display({"df": self.display.tail(13), "current_bid": self.ticks['bid'].iloc[-1], "strategy": self})
             except Exception as e:
@@ -166,10 +266,9 @@ class PmxRkoStrategy(Strategy):
                 lp = len(self.positions)
             djc = dj['sigc'].iloc[-2]
             self.fopen = False
-            if not self.TimeisOpen():
-                return
+            if not self.TimeisOpen():                 return 0
             if lp == 0 and sso != NONE and (ssc != psc or (psc == ssc and ssc != 4)) and (ss != FCLOSE or (ss == FCLOSE and ls != sso)):
-                if (sso == BUY and djc != 6) or (sso == SELL and djc != 7):
+                if (sso == BUY and djc == BUY) or (sso == SELL and djc == SELL):
                     print(f"{datetime.now()} {self.live['name']} sensO={sso}")
                     self.stp = self.live['tp']
                     self.live['tp'] = 0

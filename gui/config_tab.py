@@ -2,13 +2,11 @@
 import json
 import os
 
-from PyQt5.QtWidgets import QCheckBox
 from PyQt6.QtWidgets import QWidget, QFileDialog, QComboBox, QLineEdit
 from PyQt6 import uic
 
 from utils.config_utils import indVal, tarVal
 from utils.qwidget_utils import set_widget_from_dict, get_widget_from_dict, get_widget_from_list
-from utils.utils import load_config, save_config, to_number
 
 class ConfigTab(QWidget):
     def __init__(self, parent=None):
@@ -35,7 +33,7 @@ class ConfigTab(QWidget):
             get_widget_from_dict(self, self.cfg["open_rules"])
             get_widget_from_dict(self, self.cfg["close_rules"])
             get_widget_from_dict(self, self.cfg["live"])
-            get_widget_from_dict(self, self.cfg("parameters"))
+            get_widget_from_dict(self, self.cfg["parameters"])
             get_widget_from_dict(self, self.cfg["lstm"])
             return self.cfg
         except Exception as e:
@@ -54,13 +52,17 @@ class ConfigTab(QWidget):
             self.set_config(self.cfg)
 
     def save(self):
-        cfg = self.cntrl()
+        cfg = self.get_config()
+        if cfg is None:
+            print("err recup cfg")
+            return
         path, _ = QFileDialog.getSaveFileName(parent=None, caption="Sauver config", directory='config_live.json',
                                               filter="JSON (*.json)")
         if path:
             with open(path, 'w') as f:
                 json.dump(cfg, f, indent=2)
             self.parent.statusBar().showMessage(f"Config sauvegardée : {path}")
+            self.parent.set_config_live(cfg)
 
     def cntrl(self):
         features = get_widget_from_list(self, "features")

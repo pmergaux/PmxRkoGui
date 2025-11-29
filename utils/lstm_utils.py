@@ -8,8 +8,11 @@ from tensorflow.keras.models import Model, Sequential
 from tensorflow.keras.layers import Input, LSTM, Dropout, Dense, MultiHeadAttention, LayerNormalization, GlobalAveragePooling1D
 from tensorflow.keras.optimizers import Adam
 from sklearn.metrics import accuracy_score, f1_score, roc_auc_score, log_loss
-from numba import njit, prange
 from typing import List, Tuple, Dict
+from numba import njit, prange
+from sklearn.preprocessing import MinMaxScaler
+
+from utils.scaler_utils import train_save_live_scaler, load_and_transform
 
 def generate_param_combinations(grid):
     import itertools
@@ -73,11 +76,89 @@ def get_feature_columns(df: pd.DataFrame, exclude: List[str] = None) -> List[str
 def clean_features(df, cols):
     dfc = df[cols].copy()
     dfc = dfc.replace([np.inf, -np.inf], np.nan).fillna(0)
-    return dfc.values
+    return dfc
 
-# ===============================
-# x. FUNCTIONS CREATE_SEQUENCES
-# ===============================
+def config_to_features(config:dict):
+    features = config["features"]
+    target = config["target"]
+    features_cols = []
+    utils_cols = []
+    for col in features:
+        if len(col) > 1:
+            features_cols.append(col)
+            utils_cols.append(col)
+    target_cols = target["target_col"]
+    if not isinstance(target_cols, list):
+        target_cols = [target_cols]
+    for col in target_cols:
+        if col not in features_cols:
+            if target["target_include"]:
+                features_cols.append(col)
+            utils_cols.append(col)
+    return features_cols, target_cols, utils_cols
+
+# =============================================
+# 1. SCALING (features seulement)
+# =============================================
+def scale_features_only(
+    train_df: pd.DataFrame,
+    val_df: pd.DataFrame,
+    test_df: pd.DataFrame,
+    feature_cols: List[str],
+    path: str
+):
+    X_train = train_save_live_scaler(train_df[feature_cols].to_numpy(dtype=np.float32), feature_cols, path)
+    X_val   = load_and_transform(val_df[feature_cols].to_numpy(dtype=np.float32), path)
+    X_test  = load_and_transform(test_df[feature_cols].to_numpy(dtype=np.float32), path)
+    return X_train, X_val, X_test
+
+# =============================================
+# 2. ASSEMBLAGE + TARGETS BRUTS
+# =============================================
+def assemble_with_targets(
+    X_train_scaled, X_val_scaled, X_test_scaled,
+    train_df, val_df, test_df,
+    target_cols: List[str]
+):
+    y_train = train_df[target_cols].to_numpy(dtype=np.float32)
+    y_val   = val_df[target_cols].to_numpy(dtype=np.float32)
+    y_test  = test_df[target_cols].to_numpy(dtype=np.float32)
+
+    train_ready = np.hstack([X_train_scaled, y_train])
+    val_ready   = np.hstack([X_val_scaled,   y_val])
+    test_ready  = np.hstack([X_test_scaled,  y_test])
+
+    return train_ready, val_ready, test_ready
+
+# =============================================
+# 3. CREATE SEQUENCES — NUMBA ULTRA-RAPIDE
+# =============================================
+"""
+pour seq = 5 et len = 11
+n_samples = 6
+i = 0,1,2,3,4,5
+X 0-4 à 5-10
+y 4,5,6,7,8,9,10 
+soit y avec -1 si on veut symchroniser sinon on anticipe y par rapport à X
+"""
+@njit(fastmath=True)
+def create_sequences_numba(data: np.ndarray, seq_len: int, n_features: int, horizon: int = 0):
+    n_samples = len(data) - seq_len - horizon + 1   # nombre d'échantillons
+    n_targets = data.shape[1] - n_features  # nombre total de colonnes - celles des features = nombre colonnes target
+
+    X = np.empty((n_samples, seq_len, n_features), dtype=np.float32)
+    y = np.empty((n_samples, n_targets), dtype=np.float32)
+
+    # Attn normalement la dernière ligne aurait dû être enlevée car on ne veut que des bougies closes (valides)
+    for i in range(n_samples):
+        X[i] = data[i:i + seq_len, :n_features]
+        y[i] = data[i + horizon + seq_len-1, n_features:]
+
+    return X, y
+
+# ========================================================
+# x. FUNCTIONS CREATE_SEQUENCES anciennes a revoir .......
+# ========================================================
 @njit
 def _create_sequences_opt_numba(data, seq_len):
     n = len(data)
@@ -94,8 +175,7 @@ def create_sequences_opt(data, seq_len):
     return _create_sequences_numba(data, seq_len)
 
 @njit(parallel=True, cache=True)
-def _create_sequences_numba(data: np.ndarray, seq_len: int, target_col_idx: int, include_target_in_features: bool,
-                            target_type: int ) -> Tuple[np.ndarray, np.ndarray]:
+def _create_sequences_numba_old(data: np.ndarray, seq_len: int, input_idx: list, target_idx: list, target_type: int) -> Tuple[np.ndarray, np.ndarray]:
     """
     Version NUMBA ultra-rapide de create_sequences.
     target_type   # 0: direction, 1: value, 2: return
@@ -111,11 +191,11 @@ def _create_sequences_numba(data: np.ndarray, seq_len: int, target_col_idx: int,
         # --- Copie séquence ---
         start_idx = i
         end_idx = i + seq_len
-        seq = data[start_idx:end_idx]
+        seq = data[start_idx:end_idx, input_idx]
         X[i] = seq
         # --- Cible à t+1 ---
-        val_t = data[i + seq_len - 1, target_col_idx]
-        val_t1 = data[i + seq_len, target_col_idx]
+        val_t = data[i + seq_len - 1, target_idx]
+        val_t1 = data[i + seq_len, target_idx]
         if target_type == 0:  # direction
             y[i] = 1.0 if val_t1 > val_t else 0.0
         elif target_type == 1:  # value
@@ -124,8 +204,59 @@ def _create_sequences_numba(data: np.ndarray, seq_len: int, target_col_idx: int,
             y[i] = (val_t1 - val_t) / val_t if val_t != 0.0 else 0.0
     return X, y
 
+@njit(parallel=True, cache=True)
+def _create_sequences_numba(
+    data: np.ndarray,           # shape (n_samples, n_features) – doit être float64 et C-contiguous
+    seq_len: int,
+    input_idx: np.ndarray,      # ← CHANGEMENT : np.ndarray int32/int64, PAS list[]
+    target_idx: np.ndarray,     # ← même chose
+    target_type: int            # 0=dir, 1=value, 2=return
+) -> Tuple[np.ndarray, np.ndarray]:
 
-def create_sequences(data: np.ndarray, params: dict):  #seq_len: int, target_config: Dict, feature_names: list) -> Tuple[np.ndarray, np.ndarray]:
+    n_samples, n_features = data.shape
+    n_seq = n_samples - seq_len
+    if n_seq <= 0:
+        return np.empty((0, seq_len, len(input_idx)), dtype=np.float64), \
+               np.empty((0,), dtype=np.float64)
+
+    # Préallocation
+    X = np.empty((n_seq, seq_len, len(input_idx)), dtype=np.float64)
+    y = np.empty((n_seq,), dtype=np.float64)
+
+    for i in prange(n_seq):
+        # Copie de la séquence (on boucle manuellement sur les features sélectionnées)
+        for s in range(seq_len):
+            for j in range(len(input_idx)):
+                X[i, s, j] = data[i + s, input_idx[j]]
+
+        # Cible à t+1
+        val_t  = data[i + seq_len - 1, target_idx[0]]   # on prend le premier (normalement un seul)
+        val_t1 = data[i + seq_len,     target_idx[0]]
+
+        if target_type == 0:      # direction
+            y[i] = 1.0 if val_t1 > val_t else 0.0
+        elif target_type == 1:    # valeur absolue
+            y[i] = val_t1
+        else:                     # return
+            y[i] = (val_t1 - val_t) / val_t if val_t != 0.0 else 0.0
+
+    return X, y
+
+def create_sequences_classic(data, seq_len, features_cols, target_col, target_type):
+    X, y = [], []
+    data = data.dropna()
+    values = data[target_col].values
+    features = data[features_cols].values
+
+    for i in range(len(data) - seq_len):
+        X.append(features[i:i+seq_len])
+        if target_type == 'direction':
+            y.append(1 if values[i+seq_len] > values[i+seq_len-1] else 0)
+        else:
+            y.append((values[i+seq_len] - values[i+seq_len-1]) / values[i+seq_len-1])
+    return np.array(X), np.array(y)
+
+def create_sequences(data: np.ndarray, seq_len: int, input_idx: list,  target_idx: list, target_type: int, include: bool) -> Tuple[np.ndarray, np.ndarray]:
     """
     Système ouvert : crée X et y selon la configuration.
     Parameters:
@@ -147,30 +278,24 @@ def create_sequences(data: np.ndarray, params: dict):  #seq_len: int, target_con
     X : (n_samples, seq_len, n_features)
     y : (n_samples,) ou (n_samples, 1)
     """
-    features = params.get('features', [])
-    target = params.get('target', {})
-    lstm = params.get('lstm', {})
-    if len(features) == 0 or len(target) == 0 or len(lstm) == 0:
-        raise "features or target or lstm None"
-    target_col = target.get("column")
-    # -- converti le type en int
-    target_type = target.get("type")
-    # -- la cible est elle dans les données d'établissement du modèle
-    include_target = target.get("include", True)
-    if include_target and target_col not in features:
-        features.append(target_col)
     n_features = data.shape[1]      # nb de col
-    if n_features != len(features):
+    n_col = len(input_idx)+len(target_idx)
+    if include:
+        n_col -=1
+    if n_features != n_col:
         raise "nb colonnes data # nb de features"
-    target_idx = features.index(target_col)
-    return _create_sequences_numba(
-        data=data,
-        seq_len=lstm.get('seq_len', 50),
-        target_col_idx=target_idx,
-        include_target_in_features=include_target,
-        target_type=target_type
-    )
+    # Avant d’appeler la fonction
+    input_idx_np = np.array(input_idx, dtype=np.int32)  # ← important
+    target_idx_np = np.array(target_idx, dtype=np.int32)
 
+    # Assure-toi que data est float64 et C-contiguous
+    data = np.ascontiguousarray(data, dtype=np.float64)
+
+    # Appel
+    X, y = _create_sequences_numba(
+        data, seq_len, input_idx_np, target_idx_np, target_type
+    )
+    return X, y
 # ================================
 # 3. MODÈLE LSTM (avec ou sans hyperparamètres)
 # ================================
@@ -215,6 +340,28 @@ def build_lstm(params, seq_len,  hp=None):
             metrics=['accuracy']
         )
     return model
+
+# ========================================================================
+### ALTERNATIVE SI TU VEUX RESTER EN KERAS/TF (plus simple)
+# 4 Si tu veux rester en TensorFlow → le meilleur compromis 2025
+# =====================================================================
+def build_informer_like(n_features, seq_len=120, d_model=64, n_heads=8):
+    inputs = tf.keras.Input(shape=(seq_len, n_features))
+
+    # ProbSparse Attention (Informer style)
+    x = tf.keras.layers.MultiHeadAttention(n_heads, d_model // n_heads)(inputs, inputs)
+    x = tf.keras.layers.Dropout(0.1)(x)
+    x = tf.keras.layers.LayerNormalization()(x + inputs)
+
+    x = tf.keras.layers.Conv1D(d_model, 3, padding='causal')(x)
+    x = tf.keras.layers.GlobalAveragePooling1D()(x)
+    x = tf.keras.layers.Dense(64, activation='swish')(x)
+    outputs = tf.keras.layers.Dense(1)(x)
+
+    model = tf.keras.Model(inputs, outputs)
+    model.compile(optimizer=tf.keras.optimizers.AdamW(3e-4), loss='huber')
+    return model
+
 # ================================
 # 5. TRANSFORMER (avec ou sans hyperparamètres)
 # ================================
@@ -285,6 +432,56 @@ def build_transformer_tunable(seq_len, n_features, hp):
         metrics=['accuracy']
     )
     return model
+# ======================================================================
+# tft_model.py — LE MODÈLE QUE PIERRE UTILISE EN 2025
+# =====================================================================
+from pytorch_forecasting import TemporalFusionTransformer, TimeSeriesDataSet
+from pytorch_forecasting.data import GroupNormalizer
+from pytorch_forecasting.metrics import QuantileLoss
+import pytorch_lightning as pl
+import torch
+
+def build_tft(train_df, feature_cols, target_cols=['future_return'], max_encoder_length=120):
+    # 1. Dataset TFT
+    training = TimeSeriesDataSet(
+        train_df.assign(time_idx=train_df.index),
+        time_idx="time_idx",
+        target=target_cols[0],
+        group_ids=["symbol"],  # ou ["regime"] si tu veux multi-séries
+        max_encoder_length=max_encoder_length,
+        max_prediction_length=1,
+        static_categoricals=["volatility_regime", "trend_strength"],
+        static_reals=["avg_brick_size"],
+        time_varying_known_reals=feature_cols,
+        time_varying_unknown_reals=target_cols,
+        target_normalizer=GroupNormalizer(groups=["symbol"]),
+        add_relative_time_idx=True,
+        add_target_scales=True,
+        add_encoder_length=True,
+    )
+
+    # 2. Modèle TFT
+    tft = TemporalFusionTransformer.from_dataset(
+        training,
+        learning_rate=3e-4,
+        hidden_size=32,
+        attention_head_size=4,
+        dropout=0.1,
+        hidden_continuous_size=32,
+        output_size=7,  # 7 quantiles
+        loss=QuantileLoss(),
+        log_interval=10,
+        reduce_on_plateau_patience=4,
+    )
+
+    # 3. Entraînement rapide
+    trainer = pl.Trainer(max_epochs=40, gpus=1 if torch.cuda.is_available() else 0,
+                         gradient_clip_val=0.1, limit_train_batches=30)
+    train_loader = training.to_dataloader(train=True, batch_size=128, num_workers=6)
+
+    trainer.fit(tft, train_dataloaders=train_loader)
+
+    return tft, training
 
 # ================================
 # 6. ÉVALUATION

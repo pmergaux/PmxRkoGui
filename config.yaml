@@ -1,0 +1,25 @@
+data:
+  path: "data/renko_btc_0.1%.csv"
+  brick_size: 0.001
+  features:
+    - rsi_14
+    - macd_hist
+    - volume_ratio
+    - atr_ratio
+    - bb_width
+    - stochastic_k
+  target: future_return_5    # return dans 5 bricks
+  static_reals:
+    - brick_size
+    - avg_volume
+  static_categoricals:
+    - volatility_regime    # "low", "medium", "high"
+    - trend_regime         # "up", "down", "range"
+
+training:
+  max_encoder_length: 120
+  max_prediction_length: 1
+  batch_size: 128
+  max_epochs: 50
+  gpus: 1
+  gradient_clip_val: 0.1

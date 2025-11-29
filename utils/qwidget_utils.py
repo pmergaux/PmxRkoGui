@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from PyQt6.QtWidgets import QDateEdit
 from PyQt6.QtWidgets import QComboBox, QLineEdit, QCheckBox
 from PyQt6.QtCore import QDate
@@ -107,3 +109,10 @@ def get_widget_from_dict(qui, dlist: dict):
                     dlist[name] = widget.date().toString("yyyy-MM-dd")
         except Exception as e:
             print(f"err de saisie élément {e}")
+
+def qdate2datetime(qdate_obj):
+    if qdate_obj is None or not isinstance(qdate_obj, QDate):
+        raise ValueError("Bojet Qdate invalide ou null")
+    date_py = qdate_obj.toPyDate()
+    dt_py = datetime.combine(date_py, datetime.min.time())
+    return dt_py

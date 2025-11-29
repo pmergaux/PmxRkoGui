@@ -1,5 +1,5 @@
 {
-  "parametrers": {
+  "parameters": {
   "renko_size": 17.1,
   "ema_period": 9,
   "rsi_period": 14,
@@ -14,13 +14,13 @@
     "macd_fast": 12,
     "macd_slow": 26,
     "macd_signal": 9
-  }
-},
+   }
+  },
   "lstm": {
-    "seq_len": 58,
-    "units": 50,
-    "threshold_buy": 0.612,
-    "threshold_sell": "0.389"
+    "lstm_seq_len": 58,
+    "lstm_units": 50,
+    "lstm_threshold_buy": 0.612,
+    "lstm_threshold_sell": 0.389
   },
   "features": [
     "EMA",

@@ -122,7 +122,7 @@ class LiveChart(QWidget):
                     f"High: {safe_float(high, fmt='.2f')}<br>"
                     f"Low: {safe_float(low, fmt='.2f')}<br>"
                     f"RSI: {safe_float(row.get('RSI'), fmt='.1f')}<br>"
-                    f"MACD: {safe_float(row.get('MACD_line'), fmt='.3f')}"
+                    f"MACD: {safe_float(row.get('MACD_hist'), fmt='.3f')}"
                 )
             except Exception as e:
                 print(f"Hover error: {e}")

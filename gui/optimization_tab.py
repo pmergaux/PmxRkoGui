@@ -1,4 +1,6 @@
 # optimization_dialog.py
+import glob
+
 import joblib
 import pandas as pd
 import json
@@ -8,15 +10,16 @@ from PyQt6.QtCore import QDate
 from PyQt6.QtWidgets import QWidget, QFileDialog, QMessageBox, QComboBox, QLineEdit, QDateEdit
 from PyQt6 import uic
 from datetime import datetime
+from multiprocessing import Queue
 
-
-from decision.candle_decision import calculate_indicators, choix_features
+from optimize.lstm_optimizer import run_optimization
 from optimize.optimization_worker import OptimizationWorker
 from utils.config_utils import indVal, tarVal
 from utils.lstm_utils import create_sequences, generate_param_combinations
-from utils.qwidget_utils import get_widget_from_dict, set_widget_from_dict, set_widget_from_list, get_widget_from_list
-from utils.renko_utils import tick21renko
-from utils.utils import load_ticks, to_number
+from utils.qwidget_utils import get_widget_from_dict, set_widget_from_dict, set_widget_from_list, get_widget_from_list, \
+    qdate2datetime
+from utils.utils import load_ticks, to_number, reload_ticks_from_pickle
+
 
 # ===================================================================
 # 2. DIALOGUE D'OPTIMISATION (GUI + RETRAIN FINAL)
@@ -32,6 +35,7 @@ class OptimizationTab(QWidget):
         self.btn_save.clicked.connect(self.save_config)
         self.btn_load.clicked.connect(self.load_config)
         self.btn_validate.clicked.connect(self.validate_and_show)
+        self.btn_start_opt.clicked.connect(self.start_optimization)
         # NOTA : pour retrouver un widget par son nom widget = getattr(self, nom)
 
         self.mapping = {
@@ -74,6 +78,7 @@ class OptimizationTab(QWidget):
                 value.addItems(indVal)
         self.target_col.addItems(tarVal)
         self.set_optim_config(self.cfg)
+        self.queue = None
 
     def parse_range_or_list(self, text: str):
         """
@@ -96,7 +101,7 @@ class OptimizationTab(QWidget):
                 return []
         else:
             # Valeur unique
-            val = to_number(text, True)
+            val = to_number(text)
             return [val] if val is not None else []
 
     def get_optim_config(self):
@@ -117,7 +122,7 @@ class OptimizationTab(QWidget):
             if values:
                 self.cfg["parameters"][name] = {
                     "values": values,
-                    "type": "list" if is_list else "range",
+                    "type": "list" if is_list or len(values) == 1 else "range",
                     "source": text
                 }
         lstm = self.mapping["lstm"]
@@ -134,7 +139,7 @@ class OptimizationTab(QWidget):
                     "type": "list" if is_list else "range",
                     "source": text
                 }
-        get_widget_from_list(self, self.cfg["features"])
+        self.cfg["features"] = get_widget_from_list(self, "features")
         get_widget_from_dict(self, self.cfg["target"])
         get_widget_from_dict(self, self.cfg["open_rules"])
         get_widget_from_dict(self, self.cfg["close_rules"])
@@ -149,16 +154,18 @@ class OptimizationTab(QWidget):
             self.date_start.setDate(start)
             self.date_end.setDate(end)
         # Paramètres
+        paramMap = self.mapping["parameters"]
         for name, data in config.get("parameters", {}).items():
-            if name in self.mapping:
-                line_edit, checkbox = self.mapping[name]
+            if name in paramMap:
+                line_edit, checkbox = paramMap[name]
                 source = data.get("source", ",".join(map(str, data["values"])))
                 line_edit.setText(source)
                 checkbox.setChecked(data.get("type") == "list")
         # lstm
+        lstmMap = self.mapping['lstm']
         for name, data in config.get("lstm", {}).items():
-            if name in self.mapping:
-                line_edit, checkbox = self.mapping[name]
+            if name in lstmMap:
+                line_edit, checkbox = lstmMap[name]
                 source = data.get("source", ",".join(map(str, data["values"])))
                 line_edit.setText(source)
                 checkbox.setChecked(data.get("type") == "list")
@@ -205,9 +212,13 @@ class OptimizationTab(QWidget):
         config = self.get_optim_config()
         total = 1
         details = ["=== PARAMÈTRES D'OPTIMISATION ==="]
-        details.append(f"Période : {config['period']['start']} → {config['period']['end']}")
+        details.append(f"Période : {config['period']['date_start']} → {config['period']['date_end']}")
 
         for name, data in config["parameters"].items():
+            count = len(data["values"])
+            total *= count
+            details.append(f"{name}: {data['values']} ({count} valeurs) ← {data['source']}")
+        for name, data in config["lstm"].items():
             count = len(data["values"])
             total *= count
             details.append(f"{name}: {data['values']} ({count} valeurs) ← {data['source']}")
@@ -216,24 +227,73 @@ class OptimizationTab(QWidget):
 
         QMessageBox.information(self, "Validation Optimisation", "\n".join(details))
         print(json.dumps(config, indent=2))  # Pour debug console
+
 # ==========================================================
+    # dans ton widget principal
     def start_optimization(self):
         config = self.get_optim_config()
-        start = self.date_start.date()
-        end = self.date_end.date()
+        start = qdate2datetime(self.date_start.date())
+        end = qdate2datetime(self.date_end.date())
         # === CHARGE DONNÉES RÉELLES MT5 ===   a adapter avec utils
-        df = load_ticks('ETHUSD', None, start, end)
+        base_name = f"data/ETHUSD_{start.strftime('%Y_%m_%d_%H_%M_%S')}_{end.strftime('%Y_%m_%d_%H_%M_%S')}.pkl"
+        if not os.path.exists(base_name):
+            fbrick = os.path.join('data', 'renko_*.pkl')
+            nbrick = glob.glob(fbrick)
+            if nbrick:
+                try:
+                    for fic in nbrick:
+                        os.remove(fic)
+                except OSError as e:
+                    print(f"err supr fichiers {e}")
+        df = reload_ticks_from_pickle(base_name, 'ETHUSD', None, start, end)
         if df is None or df.empty:
             QMessageBox.critical(self, "Erreur", "Aucune donnée pour cette période")
             return
         df['time'] = pd.to_datetime(df['time'])
-        # === LANCE OPTIMISATION (exemple simple) ===
-        best_profit = -float('inf')
-        best_params = None
         grid = {}
+        paramMap = self.mapping["parameters"]
         for name, data in config.get('parameters', {}).items():
-            if name in self.mapping:
-                grid[name] = data.get('values', [])
+            if name in paramMap:
+                values = data.get('values', [])
+                if len(values) > 0:
+                    grid[name] = values
+        paramMap = self.mapping["lstm"]
+        for name, data in config.get('lstm', {}).items():
+            if name in paramMap:
+                values = data.get('values', [])
+                if len(values) > 0:
+                    grid[name] = values
+
+        self.worker = OptimizationWorker(grid, config, df, self)
+
+        self.worker.log.connect(self.update_log)
+        self.worker.progress.connect(self.opt_progress.setValue)
+        self.worker.finished.connect(self.on_optimization_done)
+        self.worker.error.connect(self.on_error)
+
+        self.btn_start_opt.setEnabled(False)
+        self.worker.start()
+
+    def update_log(self, text):
+        self.opt_status.setText(text)
+        # ou self.text_edit.append(text)
+
+    def on_optimization_done(self, result):
+        self.btn_start_opt.setEnabled(True)
+        self.opt_status.setText("OPTIMISATION TERMINÉE – Meilleur Sharpe: {:.3f}".format(result['best']['sharpe']))
+
+        # Sauvegarde auto
+        with open("last_optimization.json", "w") as f:
+            json.dump(result, f, indent=2, default=str)
+
+        print("MEILLEUR PARAMÈTRE :", result['best'])
+        print("TOP 5 :", result['top5'])
+
+    def on_error(self, err):
+        self.opt_status.setText("ERREUR CRITIQUE")
+        QMessageBox.critical(self, "Erreur", err)
+# --------------------------------------------------------
+        """
         self.opt_progress.setMaximum(len(generate_param_combinations(grid)))
         for i, params in enumerate(grid):
             profit = self.backtest(df, params)
@@ -241,8 +301,7 @@ class OptimizationTab(QWidget):
                 best_profit, best_params = profit, params
             self.opt_progress.setValue(i + 1)
             self.opt_status.setText(f"Backtest {i + 1}/{len(grid)} → Profit: {profit:.1f}%")
-
-        self.show_result(best_params, best_profit)
+        """
 
     def backtest(self, df, params):
         # === EXEMPLE DE BACKTEST (à remplacer par ton LSTM + Renko) ===
@@ -258,47 +317,6 @@ class OptimizationTab(QWidget):
             msg += f"• {k} = {v}<br>"
         QMessageBox.information(self, "Optimisation Terminées", msg)
 """
-        # --- old version ---------------------------------------
-        start_date, end_date = self.get_date_range()
-        filename = 'ticks_' + start_date.strftime('%Y_%m_%d_%H_%M_%S') + end_date.strftime('%Y_%m_%d_%H_%M_%S') + '.pkl'
-        df_cache = pd.DataFrame()
-        if not os.path.exists(filename):
-            df_cache = load_ticks(self._param['symbol'], None, start_date, end_date)
-            if df_cache.empty:
-                print(f"{datetime.now()} Erreur: df_cache vide")
-                self.stop_optimization.value = True
-                self.btn_start.setEnabled(True)
-                return
-
-        if not config["renko_size"]:
-            self.logs.append("ERREUR : Renko size vide")
-            self.btn_start.setEnabled(True)
-            return
-
-        ticks_path = "data/ETHUSD.pkl"
-        if not os.path.exists(ticks_path):
-            self.logs.append("ERREUR : Fichier ticks manquant")
-            self.btn_start.setEnabled(True)
-            return
-
-        self.worker = OptimizationWorker(config, ticks_path)
-        self.worker.progress.connect(self.progress.setValue)
-        self.worker.log.connect(self.logs.append)
-        self.worker.finished.connect(self.on_finished)
-        self.worker.start()
-
-        self.btn_start.setEnabled(True)
-
-    def on_optimization_done(self, best_params, best_value):
-        self.best_params = best_params
-        self.best_value = best_value
-        # → Sauvegarde dans config.json
-        cfg = self.parent.config_tab.get_config()  # ← CORRIGÉ
-        cfg.update(best_params)
-        self.parent.config_tab.save_config(cfg)  # ← CORRIGÉ
-        self.label.setText("Optimisation terminée. Config mise à jour.")
-        self.btn_start.setEnabled(True)
-
         # === AFFICHAGE RÉSULTAT ===
         msg = f'''
         <b>MEILLEURS PARAMÈTRES</b><br>

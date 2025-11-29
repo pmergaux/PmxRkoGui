@@ -503,6 +503,19 @@
          <string>MACD croise signal</string>
         </property>
        </widget>
+       <widget class="QCheckBox" name="rule_lstm">
+        <property name="geometry">
+         <rect>
+          <x>0</x>
+          <y>40</y>
+          <width>95</width>
+          <height>25</height>
+         </rect>
+        </property>
+        <property name="text">
+         <string>lstm</string>
+        </property>
+       </widget>
       </widget>
      </item>
      <item>

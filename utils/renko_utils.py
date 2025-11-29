@@ -27,6 +27,10 @@ def _correct_closer(df_bricks: pd.DataFrame, step: float) -> None:
         np.where(df_bricks['open'] > df_bricks['close'], df_bricks['open_renko'] - step,
                  np.where(df_bricks['open_renko'] > df_bricks['close'], df_bricks['open_renko'] - step, df_bricks['open_renko'] + step)))
 
+def put_index_renko(bricks):
+    bricks = bricks.set_index('time', drop=False)
+    bricks.index = pd.to_datetime(bricks.index, unit="ms")
+    return bricks
 
 def tick21renko(df: pd.DataFrame, bricks: pd.DataFrame, step: float, value: str = 'bid') -> pd.DataFrame:
     def tick2renko(df: pd.DataFrame, step: float = 10.0, value: str = 'bid'):
@@ -106,11 +110,6 @@ def tick21renko(df: pd.DataFrame, bricks: pd.DataFrame, step: float, value: str 
     _correct_closer(bricks, step)
     bricks = bricks.set_index('time', drop=False)
     bricks.index = pd.to_datetime(bricks.index, unit="ms")
-    """
-    timestamps = [brick[RTIME] for brick in bricks]
-    if len(timestamps) != len(set(timestamps)):
-        print(f"Attention: {len(timestamps) - len(set(timestamps))} timestamps dupliqués détectés dans les briques.")
-    """
     return bricks
 
 def tick2renko(df: pd.DataFrame, bricks: pd.DataFrame, step: float, value: str = 'bid', mode=False) -> pd.DataFrame:
