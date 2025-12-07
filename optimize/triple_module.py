@@ -1,10 +1,6 @@
-# simple_optimize_pierre2026_COMPLET.py
-# Auteur : Pierre (83 ans) — Version finale — Prêt à lancer
+# Auteur : Pierre — Version finale — Prêt à lancer
 # Objectif : 100 essais → trouve le Graal ou meurt
 import os
-
-import torch
-
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'   # ← à mettre TOUT EN HAUT du fichier
 # 2. Optionnel mais recommandé : limite la verbosité de TF
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # 0=all, 1=no info, 2=no warning, 3=error only
@@ -20,8 +16,6 @@ import json
 from datetime import datetime
 import time
 
-from pytorch_forecasting import MultiNormalizer, MultiLoss
-
 VERSIONS = ['SIMPLE', 'ULTRA', 'LSTM', 'TRIPLE']
 # ====================== TES FONCTIONS EXISTANTES (à garder) ======================
 from utils.config_utils import config_to_hash, prepare_to_hashcode
@@ -31,37 +25,7 @@ from utils.lstm_utils import scale_features_only, assemble_with_targets, create_
     nn_servers
 from decision.candle_decision import add_indicators, choix_features  # ← ton add_indicators Numba parfait
 
-# ====================== DONNÉES ======================
-"""
-fbrick = os.path.join('models/', 'simple_model_*.keras')
-nbrick = glob.glob(fbrick)
-if nbrick:
-    try:
-        for fic in nbrick:
-            os.remove(fic)
-    except OSError as e:
-        print(f"err supr fichiers {e}")
-fbrick = os.path.join('models/', 'scaler_temp_*.pkl')
-nbrick = glob.glob(fbrick)
-if nbrick:
-    try:
-        for fic in nbrick:
-            os.remove(fic)
-    except OSError as e:
-        print(f"err supr fichiers {e}")
-"""
-start = datetime(2025, 9, 1)
-end = datetime(2025, 11, 20, 23, 59, 59)
-base_name = f"../data/ETHUSD_{start.strftime('%Y_%m_%d_%H_%M_%S')}_{end.strftime('%Y_%m_%d_%H_%M_%S')}.pkl"
-df = reload_ticks_from_pickle(base_name, 'ETHUSD', None, start, end)
-if df is None or df.empty:
-    print("Pas de données → exit")
-    exit()
-df['time'] = pd.to_datetime(df['time'])
-# ============================================================ en attente de save
-save_model_lstm = None
-save_model_tft = None
-save_scaler = None
+
 # =========================================================== Les paramètres
 #features_base = ["EMA", "RSI", "MACD_hist", "close","time_live", "lstm"]
 params = {"renko_size": 17.1, "ema_period": 9, "rsi_period": 14, "rsi_high": 70, "rsi_low": 30, "macd": {"macd_fast": 12, "macd_slow": 26, "macd_signal": 9}}
@@ -176,6 +140,7 @@ def tft_train_predict_fast(train_df, val_df, test_df, features_cols, target_cols
         import warnings
         import torch
         from pytorch_forecasting import TimeSeriesDataSet, TemporalFusionTransformer
+        from pytorch_forecasting import MultiNormalizer, MultiLoss
         from pytorch_forecasting.data import GroupNormalizer
         from pytorch_forecasting.metrics import MAE  # MAE = x5 plus rapide que QuantileLoss
         from lightning.pytorch import Trainer
@@ -225,6 +190,7 @@ def tft_train_predict_fast(train_df, val_df, test_df, features_cols, target_cols
         for _ in target_cols:
             mnz.append(GroupNormalizer(groups=["group"], transformation="softplus"))  #close
             losses.append(MAE())
+
         training = TimeSeriesDataSet(
             train_df,
             time_idx="time_idx",
@@ -234,17 +200,13 @@ def tft_train_predict_fast(train_df, val_df, test_df, features_cols, target_cols
             max_encoder_length=120,
             min_prediction_length=1,
             max_prediction_length=1,
-
             static_categoricals=[],
             static_reals=[],
-
             time_varying_known_categoricals=[],
             time_varying_known_reals=feature_cols_clean,  # ← target EXCLU ici !
             time_varying_unknown_categoricals=[],
             time_varying_unknown_reals=target_cols,  # ← target ICI, et en LISTE !
-
             target_normalizer=MultiNormalizer(mnz),
-
             add_relative_time_idx=False,
             add_target_scales=False,
             add_encoder_length=False,
@@ -259,7 +221,7 @@ def tft_train_predict_fast(train_df, val_df, test_df, features_cols, target_cols
         train_loader = training.to_dataloader(
             train=True,
             batch_size=512,  # gros batch = rapide
-            num_workers=4,  # ← 4 workers (pas 0, pas 19 = équilibre)
+            num_workers=4,  # ← Set to 0 to prevent nested parallelism and SIGSEGV crashes
             persistent_workers=False,
             shuffle=True,
             pin_memory=True  # ← GPU-ready même sur CPU
@@ -267,7 +229,7 @@ def tft_train_predict_fast(train_df, val_df, test_df, features_cols, target_cols
         val_loader = val_dataset.to_dataloader(
             train=False,
             batch_size=1024,
-            num_workers=4,
+            num_workers=4, # ← Set to 0
             pin_memory=True
         )
 
@@ -328,7 +290,7 @@ def tft_train_predict_fast(train_df, val_df, test_df, features_cols, target_cols
         test_loader = test_dataset.to_dataloader(
             train=False,
             batch_size=2048,
-            num_workers=4,
+            num_workers=0, # ← Set to 0
             shuffle=False,
             pin_memory=True
         )
@@ -456,9 +418,9 @@ def tft_train_predict(train_df, val_df, test_df, feature_cols, target_cols, max_
             stop_randomization=True
         )
 
-        train_loader = training.to_dataloader(train=True, batch_size=128, num_workers=6)
-        val_loader = val_dataset.to_dataloader(train=False, batch_size=128, num_workers=6)
-        test_loader = test_dataset.to_dataloader(train=False, batch_size=128, num_workers=6)
+        train_loader = training.to_dataloader(train=True, batch_size=128, num_workers=0)
+        val_loader = val_dataset.to_dataloader(train=False, batch_size=128, num_workers=0)
+        test_loader = test_dataset.to_dataloader(train=False, batch_size=128, num_workers=0)
 
         tft = TemporalFusionTransformer.from_dataset(
             training,
@@ -479,13 +441,10 @@ def tft_train_predict(train_df, val_df, test_df, feature_cols, target_cols, max_
 
         pred = tft.predict(test_loader, mode="prediction")
         print(f"TFT {(time.time()-start):.0f}")
-        save_model_tft = tft
         return pred.numpy().flatten()
     except BaseException as e:
         print(f"TFT err {(time.time()-start):.0f} except {e}")
         return None
-    finally:
-        del train_loader, val_loader, test_loader, trainer
 
 # ---------- N-BEATS (excellent sur signaux financiers) ----------
 # CORRECTIF N-BEATS 2025 – À REMPLACER DIRECT DANS TON CODE
@@ -648,10 +607,12 @@ def backtest(df_test, proba, buy_thr=0.6, sell_thr=0.4):
 # ==================================================================
 # 5. ÉVALUATION FINALE — LA VÉRITÉ
 # ==================================================================
-def evaluate_config(config):
+def run_backtest(config):
     try:
         # 0. standardiser la config par exemple si on doit utiliser le hcode
         VERSION = config["VERSION"]
+        print(VERSION)
+        df = config["data"]
         # ------------- standardiser les paramétrages
         config_std = to_config_std(config)
         # print("c std", config_std)
@@ -717,21 +678,21 @@ def evaluate_config(config):
                     test_return = decision(test_return, config_std)
                     continue
                 if 'SIMPLE'==vs:
-                    save_model_lstm = model = lstm_train_simple(X_train_seq, y_train_seq, X_val_seq, y_val_seq, seq_len, len(features_cols))
+                    model = lstm_train_simple(X_train_seq, y_train_seq, X_val_seq, y_val_seq, seq_len, len(features_cols))
                     # print("pred simple")
                     pred = model.predict(X_test_seq, verbose=0).flatten()
                     proba = pred
                     # score = backtest(test_df.iloc[-len(proba):], proba, thresh_buy, thresh_sell)
                     continue
                 if 'ULTRA'==vs:
-                    save_model_lstm = model = lstm_train_ultra(X_train_seq, y_train_seq, X_val_seq, y_val_seq, units, seq_len, len(features_cols))
+                    model = lstm_train_ultra(X_train_seq, y_train_seq, X_val_seq, y_val_seq, units, seq_len, len(features_cols))
                     # print("pred ultra")
                     proba_lstm = model.predict(X_test_seq, verbose=0).flatten()
                     proba = proba_lstm
                     # score = backtest(test_df.iloc[-len(proba_lstm):], proba_lstm, thresh_buy, thresh_sell)
                     continue
                 if 'LSTM'==vs:
-                    save_model_lstm = model = lstm_train_model(X_train_seq, y_train_seq, X_val_seq, y_val_seq, units, seq_len, len(features_cols))
+                    model = lstm_train_model(X_train_seq, y_train_seq, X_val_seq, y_val_seq, units, seq_len, len(features_cols))
                     # print("pred model")
                     proba_lstm = model.predict(X_test_seq, verbose=0).flatten()
                     proba = (proba_lstm + 1) / 2  # tanh → [0,1]
@@ -780,100 +741,3 @@ def evaluate_config(config):
     except Exception as e:
         print("ERREUR →", e)
         return float('-inf')
-
-# ====================== MAIN — 100 ESSAIS — LE GRAAL ======================
-if __name__ == "__main__":
-    print("DÉBUT OPTIMISATION — 100 ESSAIS")
-    alea = False
-    best_score = float('-inf')
-    best_config = None
-    results = []
-    if alea:
-        for i in range(100):
-            print("situation ",i)
-            config = {
-                'renko_size': round(random.uniform(8, 18), 1),
-                'ema_period': random.randint(8, 12),
-                'rsi_period': random.randint(12, 16),
-                'target_col': random.choice(['close', 'EMA','target_sign_mean']),
-                'target_type': 'direction',
-                # inutile si lstm ou autre nn non dans features
-                'seq_len': random.randint(20, 120),
-                'lstm_units': random.randint(64, 256),
-                'threshold_buy': round(random.uniform(0.55, 0.75), 3),
-                'threshold_sell': round(random.uniform(0.25, 0.45), 3),
-                #'VERSION': random.choice([['SIMPLE'], ['ULTRA'], ['LSTM'], ['TRIPLE']]),
-                'features_base': ["EMA", "RSI", "MACD_hist", "close", "time_live", "TFT"],
-                'VERSION':['TFT'],
-                'hcode': ''
-            }
-            score = evaluate_config(config)
-            results.append((score, config))
-
-            if score > best_score:
-                best_score = score
-                best_config = config.copy()
-                print(f"NOUVEAU RECORD → {score:.1f}")
-                os.makedirs("models/simple_opt", exist_ok=True)
-                with open("models/simple_opt/best_pierre2026.json", "w") as f:
-                    json.dump(best_config, f, indent=2)
-            save_model_tft = None
-            save_model_lstm = None
-            save_scaler = None
-    else:
-        for rk in np.arange(15.0, 15.8, 0.1):
-            for ema in [9]:
-                for rsi in [14]:
-                    for seq in [20]:
-                        for units in [50]:
-                            for tb in np.arange(0.55, 0.75, 0.05):
-                                for ts in np.arange(0.25, 0.45, 0.05):
-                                    for tg in ['target_sign_mean']:
-                                        config = {
-                                            'renko_size':rk,
-                                            'ema_period': ema,
-                                            'rsi_period': rsi,
-                                            'target_col':tg,
-                                            'target_type': 'direction',
-                                            'seq_len': seq,
-                                            'lstm_units': units,
-                                            'threshold_buy':tb,
-                                            'threshold_sell': ts,
-                                            'features_base': ["EMA", "RSI", "MACD_hist", "close", "time_live",
-                                                              "TFT"],
-                                            'VERSION': ['TFT'],
-                                            'hcode': ''
-                                        }
-                                        score = evaluate_config(config)
-                                        results.append((score, config))
-
-                                        if score > best_score:
-                                            best_score = score
-                                            best_config = config.copy()
-                                            print(f"NOUVEAU RECORD → {score:.1f}")
-                                            os.makedirs("models/simple_opt", exist_ok=True)
-                                            if save_model_tft is not None:
-                                                torch.save(save_model_tft, "models/tft_best.pth")
-                                            elif save_model_lstm is not None:
-                                                torch.save(save_model_lstm, "models/lstm_best.pth")
-
-                                            print("TFT sauvegardé en entier → méthode 2026")
-                                            with open("models/simple_opt/best_pierre2026.json", "w") as f:
-                                                json.dump(best_config, f, indent=2)
-                                        save_model_tft = None
-                                        save_model_lstm = None
-                                        save_scaler = None
-
-    # ==================== SAUVEGARDE ====================
-    os.makedirs("models/simple_opt", exist_ok=True)
-    with open("models/simple_opt/best_pierre2026.json", "w") as f:
-        json.dump(best_config, f, indent=2)
-
-    print("\nMEILLEURE CONFIG TROUVÉE:")
-    print(json.dumps(best_config, indent=2))
-    print(f"Score final: {best_score:.1f}")
-
-    # Top 5
-    top5 = sorted(results, key=lambda x: x[0], reverse=True)[:5]
-    for top in top5:
-        print(top)

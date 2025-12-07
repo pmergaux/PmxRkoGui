@@ -34,9 +34,10 @@ def save_config(qui: QWidget, filename, cfg):
         qui.parent.statusBar().showMessage(f"Config sauvegardée : {path}")
 
 def prepare_to_hashcode(config:dict):
+    # les rules sont éliminées
     parameters = config["parameters"]
     features = config["features"]
-    lstm = config["lstm"]
+    lstm = config.get("lstm", None)
     target = config["target"]
     live = config["live"]
     params = {"renko_size":parameters["renko_size"]}
@@ -45,4 +46,7 @@ def prepare_to_hashcode(config:dict):
         if name in trans.keys():
             for value in trans[name]:
                 params[value] = parameters[value]
+    # sequence à revoir avec nn_servers de lstm_utils
+    if "lstm" not in features or lstm is None:
+        return {"parameters":params, "features": features, "target": target, "symbol":live["symbol"]}
     return {"parameters":params, "features": features, "target": target, "lstm": lstm, "symbol":live["symbol"]}

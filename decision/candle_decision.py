@@ -10,10 +10,11 @@ def compute_indicators_pure_numba(
         high: np.ndarray,
         low: np.ndarray,
         timestamp_seconds: np.ndarray,
+        ema_period: int = 9,
         rsi_period: int = 14,
         macd_fast: int = 12,
         macd_slow: int = 26,
-        macd_signal_period: int = 9,  # Renommage pour éviter conflit avec le buffer macd_signal
+        macd_signal_: int = 9,  # Renommage pour éviter conflit avec le buffer macd_signal
         cci_period: int = 20,
         willr_period: int = 14
 ) -> tuple:
@@ -21,7 +22,7 @@ def compute_indicators_pure_numba(
 
     # === Buffers ===
     rsi = np.full(n, np.nan, dtype=np.float64)
-    ema14 = np.full(n, np.nan, dtype=np.float64)
+    ema = np.full(n, np.nan, dtype=np.float64)
     macd_line = np.full(n, np.nan, dtype=np.float64)
     macd_signal = np.full(n, np.nan, dtype=np.float64)
     macd_hist = np.full(n, np.nan, dtype=np.float64)
@@ -31,10 +32,10 @@ def compute_indicators_pure_numba(
     volatility = np.zeros(n, dtype=np.float64)  # Ajout du buffer de volatilité
 
     # === EMA 14 (Séquentiel) ===
-    alpha = 2.0 / (14 + 1.0)
-    ema14[0] = close[0]
+    alpha = 2.0 / (ema_period + 1.0)
+    ema[0] = close[0]
     for i in range(1, n):
-        ema14[i] = alpha * close[i] + (1.0 - alpha) * ema14[i - 1]
+        ema[i] = alpha * close[i] + (1.0 - alpha) * ema[i - 1]
 
     # === MACD LINE (Séquentiel) ===
     alpha_f = 2.0 / (macd_fast + 1.0)
@@ -51,7 +52,7 @@ def compute_indicators_pure_numba(
         macd_line[i] = ema_fast[i] - ema_slow[i]
 
     # === SIGNAL LINE (Séquentiel) ===
-    signal_period = macd_signal_period  # Utilisation du paramètre renommé
+    signal_period = macd_signal_  # Utilisation du paramètre renommé
     alpha_sig = 2.0 / (signal_period + 1.0)
 
     if n >= signal_period:
@@ -73,7 +74,7 @@ def compute_indicators_pure_numba(
     for i in range(n):  # Boucle unique pour les indicateurs de fenêtre et time_vol
 
         # Volatility (ex: Range) - Mis ici par souci de simplicité
-        volatility[i] = high[i] - low[i]
+        volatility[i] = (high[i] - low[i]) / close[i]
 
         # RSI
         if i >= rsi_period:
@@ -107,13 +108,13 @@ def compute_indicators_pure_numba(
             time_vol[i] = hour * 100 + minute
 
     return (
-        rsi, ema14, macd_line,
+        rsi, ema, macd_line,
         macd_signal, macd_hist,
         cci, willr, time_vol, volatility  # <-- Retourne 9 éléments
     )
 
 
-def add_indicators(df):
+def add_indicators(df, param):
     df = df.copy()
     df = df.reset_index(drop=True)
     # Conversion une fois pour toutes
@@ -122,15 +123,22 @@ def add_indicators(df):
     low_np = df['low'].to_numpy(dtype=np.float64)
     df['time'] = pd.to_datetime(df['time'])
     ts_np = df['time'].astype('int64').values // 1_000_000_000
+    ema_period = param.get("ema_period", 9)
+    rsi_period = param.get('rsi_period', 14)
+    macd = param.get('macd', {'macd_fast':12, 'macd_slow':26, "macd_signal":9})
+    macd_fast = macd['macd_fast']
+    macd_slow = macd['macd_slow']
+    macd_signal = macd['macd_signal']
+    cci_period = param.get('cci_period', 20)
 
     # Appel magique (9 variables dépaquetées pour correspondre à la sortie Numba)
     rsi, ema, macd_line, macd_signal, macd_hist, cci, willr, time_vol, vol = compute_indicators_pure_numba(
-        close_np, high_np, low_np, ts_np
+        close_np, high_np, low_np, ts_np, ema_period, rsi_period, macd_fast, macd_slow, macd_signal, cci_period
     )
     # Remise dans le DataFrame
     df['RSI'] = rsi
     df['EMA'] = ema
-    df['MACD'] = macd_line
+    df['MACD_line'] = macd_line
     df['MACD_signal'] = macd_signal
     df['MACD_hist'] = macd_hist
     df['CCI'] = cci
@@ -273,7 +281,7 @@ def choix_features(df: pd.DataFrame, cfg: dict):
         sell_cond &= (df['Stoch_RSI'] > s_rsi_high)
     if 'ATR' in features and open_rules.get('atr', False):
         buy_cond &= (df['ATR'] > df['ATR'].mean())
-        sell_cond &= (df['ATR'] > df['ATR'].mean())
+        sell_cond &= (df['ATR'] < df['ATR'].mean())
     if 'Williams_R' in features and open_rules.get('wr', False):
         buy_cond &= (df['Williams_R'] < williams_low)
         sell_cond &= (df['Williams_R'] > williams_high)

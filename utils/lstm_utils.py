@@ -11,8 +11,9 @@ from sklearn.metrics import accuracy_score, f1_score, roc_auc_score, log_loss
 from typing import List, Tuple, Dict
 from numba import njit, prange
 from sklearn.preprocessing import MinMaxScaler
-
 from utils.scaler_utils import train_save_live_scaler, load_and_transform
+
+nn_servers = ['lstm', 'gru', 'transformer', 'TFT', 'N_BRICKS']
 
 def generate_param_combinations(grid):
     import itertools
@@ -82,20 +83,25 @@ def config_to_features(config:dict):
     features = config["features"]
     target = config["target"]
     features_cols = []
-    utils_cols = []
-    for col in features:
-        if len(col) > 1:
-            features_cols.append(col)
-            utils_cols.append(col)
+    total_cols = []
     target_cols = target["target_col"]
     if not isinstance(target_cols, list):
         target_cols = [target_cols]
+    for col in features:
+        if len(col) > 1:
+            if col in nn_servers:
+                total_cols.append(col)
+                continue
+            elif col not in target["target_col"]:
+                features_cols.append(col)
+            total_cols.append(col)
     for col in target_cols:
         if col not in features_cols:
-            if target["target_include"]:
+            if target.get("target_include", False):
                 features_cols.append(col)
-            utils_cols.append(col)
-    return features_cols, target_cols, utils_cols
+        if col not in total_cols:
+            total_cols.append(col)
+    return features_cols, target_cols, total_cols
 
 # =============================================
 # 1. SCALING (features seulement)
@@ -135,9 +141,9 @@ def assemble_with_targets(
 # =============================================
 """
 pour seq = 5 et len = 11
-n_samples = 6
-i = 0,1,2,3,4,5
-X 0-4 à 5-10
+n_samples = 7
+i = 0,1,2,3,4,5,6
+X 0-4 à 6-10            la lim haute est exclue
 y 4,5,6,7,8,9,10 
 soit y avec -1 si on veut symchroniser sinon on anticipe y par rapport à X
 """
@@ -150,6 +156,7 @@ def create_sequences_numba(data: np.ndarray, seq_len: int, n_features: int, hori
     y = np.empty((n_samples, n_targets), dtype=np.float32)
 
     # Attn normalement la dernière ligne aurait dû être enlevée car on ne veut que des bougies closes (valides)
+    # ici on retourne tout !
     for i in range(n_samples):
         X[i] = data[i:i + seq_len, :n_features]
         y[i] = data[i + horizon + seq_len-1, n_features:]
