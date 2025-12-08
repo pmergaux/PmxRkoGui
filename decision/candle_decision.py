@@ -198,20 +198,23 @@ def calculate_japonais(df: pd.DataFrame, config:dict):
     param = config["parameters"]
     df['bb_mavg'] = df['close'].rolling(window=20).mean()
     df['bb_std'] = df['close'].rolling(window=20).std()
-    #df['bb_hband'] = df['bb_mavg'] + 2 * df['bb_std']
-    #df['bb_lband'] = df['bb_mavg'] - 2 * df['bb_std']
+    df['bb_hband'] = df['bb_mavg'] + 2 * df['bb_std']
+    df['bb_lband'] = df['bb_mavg'] - 2 * df['bb_std']
     #df['bb_max'] = df['bb_mavg'] + param.get('niveau', 0.9) * df['bb_std']
     #df['bb_min'] = df['bb_mavg'] - param.get('niveau', 0.9) * df['bb_std']
 
     df['direction'] = np.where(df['close'] > df['open'], 1, np.where(df['open'] > df['close'], -1, 0))
     open_buy = ((df['direction'] == 1) & (df['close'] < df['bb_mavg']))
     open_sell = ((df['direction'] == -1) & (df['close'] > df['bb_mavg']))
-    df['sigc'] = np.where(open_buy, 1, np.where(open_sell, -1, 0))
+    df['sigo'] = np.where(open_buy, 1, np.where(open_sell, -1, 0))
+    close_sell = (df['close'] < df['bb_lband'])
+    close_buy = (df['close'] > df['bb_hband'])
+    df['sigc'] = np.where(close_sell, 1, np.where(close_buy, -1, 0))
     return df
 
 def calculate_indicators(df : pd.DataFrame, config: dict) -> pd.DataFrame:
     df = df.copy()
-    df.reset_index(drop=True)
+    #df.reset_index(drop=True)
     features = config['features']
     param = config["parameters"]
 
@@ -243,7 +246,7 @@ def calculate_indicators(df : pd.DataFrame, config: dict) -> pd.DataFrame:
     if 'time_live' in features:
         df = calculate_time_live(df)
     #print(f"Colonnes après direction_openr_closer: {df.columns.tolist()}")
-    return df.dropna().reset_index(drop=True)
+    return df.dropna()   #.reset_index(drop=True)
 
 def choix_features(df: pd.DataFrame, cfg: dict):
     features = cfg['features']

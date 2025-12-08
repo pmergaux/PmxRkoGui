@@ -30,48 +30,6 @@ class PmxRkoStrategy(Strategy):
         self.model = None
         self.scaler = None
 
-    def create_sequences(self, df, features_cols, seq_len, target: dict):
-        X, y = [], []
-        data = df.copy()
-        data = data.dropna()
-        target_col = target['target_col']
-        try:
-            values = data[target_col].values
-            features = data[features_cols].values
-            target_type = target['target_type']
-            for i in range(len(data) - seq_len):
-                X.append(features[i:i + seq_len])
-                if target_type == 'direction':
-                    y.append(1 if values[i + seq_len] > values[i + seq_len - 1] else 0)
-                elif target_type == 'value':
-                    y.append(values[i+seq_len-1])
-                else:
-                    y.append((values[i + seq_len] - values[i + seq_len - 1]) / values[i + seq_len - 1])
-        except Exception as e:
-            print("pmxRko err create sequence ", e)
-        return np.array(X), np.array(y)
-
-    # si necessaire car load_model fourni de model déjà entraîné
-    def train_model(self, X_train, y_train, X_val, y_val, units, seq_len):
-        model = tf.keras.Sequential([
-            tf.keras.Input(shape=(seq_len, 5)),
-            tf.keras.layers.LSTM(units),
-            tf.keras.layers.Dense(1, activation='sigmoid')
-        ])
-        model.compile(optimizer='adam', loss='binary_crossentropy')
-        model.fit(X_train, y_train, validation_data=(X_val, y_val), epochs=5, verbose=0)
-        return model
-
-    def pred_model(self):
-        pass
-
-    def load_model_scaler(self):
-        self.scaler = joblib.load("models/simple_scaler.pkl") if os.path.exists("models/simple_scaler.pkl") else None
-        if not self.scaler:
-            from sklearn.preprocessing import StandardScaler
-            self.scaler = StandardScaler()
-        self.model = load_model('models/simple.keras')
-
     def decision_ai(self, trace=False):
         test_p = self.bricks[:-1]
         lstm = self.cfg["lstm"]
@@ -141,10 +99,16 @@ class PmxRkoStrategy(Strategy):
         dd = pd.concat([dc, sc, so, line, sign, diff], axis=1)
         if not 'sigc' in japon.columns:
             japon['sigc'] = NONE
-        dj = japon[['sigc']].tail(3)
+            japon['sigo'] = NONE
+            japon['direction'] = NONE
+        djd = japon[['direction']].tail(3)
+        djc = japon[['sigc']].tail(3)
+        djo = japon[['sigo']].tail(3)
+        dj = pd.concat([djd, djc, djo], axis=1)
         if trace:
             print(dd)
-            print(*dj['sigc'].to_list(), sep = '|')
+            print(dj)
+            # print sur une ligne             print(*dj['sigc'].to_list(), sep = '|')
         return dd, dj  # dc['direction'].iloc[-2], sc['sigc'].iloc[-2], so['sigo'].iloc[-2]
 
     def TimeisOpen(self):
@@ -208,8 +172,10 @@ class PmxRkoStrategy(Strategy):
                     print(f"err display 1 {e}")
                 return
             tdelta=0
+            self.positions = select_positions_magic(self.cl.get_positions_symbol(self.live['symbol']), self.live['magic'])
+            lp = len(self.positions)
             if self.renko_time == self.bricks.index[-1]:
-                if not self.fopen:
+                if not self.fopen or lp > 0:
                     self.positions = select_positions_magic(self.cl.get_positions_symbol(self.live['symbol']),
                                                             self.live['magic'])
                     self.decision()
@@ -230,10 +196,8 @@ class PmxRkoStrategy(Strategy):
                     self.count_time = self.bricks.index[-1]
                 print(f"{datetime.now()} {self.live['name']} changement renko {self.renko_time} "
                       f"ex {'sell' if self.bricks['open_renko'].iloc[-2] > self.bricks['close_renko'].iloc[-2] else 'buy'}")
-            self.positions = select_positions_magic(self.cl.get_positions_symbol(self.live['symbol']), self.live['magic'])
-            lp = len(self.positions)
             dd, dj = self.decision(tdelta==0 and not self.fopen)
-            dai = self.decision_ai(True)
+            #dai = self.decision_ai(True)
             try:
                 self.parent.update_display({"df": self.display.tail(13), "current_bid": self.ticks['bid'].iloc[-1], "strategy": self})
             except Exception as e:
@@ -244,6 +208,7 @@ class PmxRkoStrategy(Strategy):
             sdc, ssc, sso = dd['direction'].iloc[-2], dd['sigc'].iloc[-2], dd['sigo'].iloc[-2]
             pdc, psc, pso = dd['direction'].iloc[-3], dd['sigc'].iloc[-3], dd['sigo'].iloc[-3]
             ss = NONE
+            djc, djo = dj['sigc'].iloc[-2], dj['sigo'].iloc[-2]
             if lp > 0:
                 ls = BUY if self.positions[0].type == MetaTrader5.POSITION_TYPE_BUY else SELL
                 if not self.TimeisOpen():
@@ -256,6 +221,9 @@ class PmxRkoStrategy(Strategy):
                     if tdelta > 3600:
                         #ss = FCLOSE   # a revoir
                         msg = 'tOut'
+                    if (djc == BUY and ls == SELL) or (djc == SELL and ls == BUY):
+                        ss = FCLOSE
+                        msg = 'hout'
                 if ssc == 4 or ss == FCLOSE or (ls != sso and sso != NONE):
                     sc = CLOSE
                     if ss != NONE:
@@ -264,11 +232,10 @@ class PmxRkoStrategy(Strategy):
                     self.count_time = None
                 self.positions = select_positions_magic(self.cl.get_positions_symbol(self.live['symbol']), self.live['magic'])
                 lp = len(self.positions)
-            djc = dj['sigc'].iloc[-2]
             self.fopen = False
             if not self.TimeisOpen():                 return 0
             if lp == 0 and sso != NONE and (ssc != psc or (psc == ssc and ssc != 4)) and (ss != FCLOSE or (ss == FCLOSE and ls != sso)):
-                if (sso == BUY and djc == BUY) or (sso == SELL and djc == SELL):
+                if ((sso == BUY) or (sso == SELL)) and sso == djo:
                     print(f"{datetime.now()} {self.live['name']} sensO={sso}")
                     self.stp = self.live['tp']
                     self.live['tp'] = 0
@@ -288,6 +255,4 @@ class PmxRkoStrategy(Strategy):
         print(f"{datetime.now()} {self.live['name']} Début de pmxRko {self.live['symbol']}")
         Strategy.lance(self)
 
-    def calculate_japonais(self, df, cfg):
-        pass
 
