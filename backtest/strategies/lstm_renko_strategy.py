@@ -6,7 +6,7 @@ from backtest.BackTrader import BackTrader
 from strategy.pmxRko import PmxRkoStrategy
 from decision.candle_decision import calculate_indicators, choix_features
 from strategy.pmxRko import PmxRkoStrategy
-from utils.lstm_utils import create_sequences
+from utils.neural_utils import create_sequences
 from utils.renko_utils import tick21renko
 from utils.utils import BUY, SELL, CLOSE
 

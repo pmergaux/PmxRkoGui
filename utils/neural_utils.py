@@ -1,4 +1,4 @@
-# utils/lstm_utils.py
+# utils/neural_utils.py
 import joblib
 import tensorflow as tf
 import numpy as np
@@ -448,7 +448,7 @@ from pytorch_forecasting.metrics import QuantileLoss
 import pytorch_lightning as pl
 import torch
 
-def build_tft(train_df, feature_cols, target_cols=['future_return'], max_encoder_length=120):
+def build_tft(train_df, feature_cols, target_cols, max_encoder_length=120):
     # 1. Dataset TFT
     training = TimeSeriesDataSet(
         train_df.assign(time_idx=train_df.index),

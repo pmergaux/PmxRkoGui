@@ -11,7 +11,7 @@ from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib import colors
 import tensorflow as tf
 
-from utils.lstm_utils import build_transformer
+from utils.neural_utils import build_transformer
 
 
 class OptimizationWorkerPLUS(QThread):

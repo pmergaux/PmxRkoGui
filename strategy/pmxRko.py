@@ -85,7 +85,7 @@ class PmxRkoStrategy(Strategy):
             self.display = choix_features(self.display, self.cfg)
         except Exception as e:
             print(f"decision err {e}")
-        japon = calculate_japonais(self.df, self.cfg)
+        jp = calculate_japonais(self.df, self.cfg)
         line = self.display[['MACD_line']].tail(3)
         sign = self.display[['MACD_signal']].tail(3)
         diff = self.display[['MACD_hist']].tail(3)
@@ -97,13 +97,19 @@ class PmxRkoStrategy(Strategy):
             self.display['sigo'] = NONE
         so = self.display[['sigo']].tail(3)
         dd = pd.concat([dc, sc, so, line, sign, diff], axis=1)
-        if not 'sigc' in japon.columns:
-            japon['sigc'] = NONE
-            japon['sigo'] = NONE
-            japon['direction'] = NONE
-        djd = japon[['direction']].tail(3)
-        djc = japon[['sigc']].tail(3)
-        djo = japon[['sigo']].tail(3)
+        if not 'sigc' in jp.columns:
+            jp['sigc'] = NONE
+            jp['sigo'] = NONE
+            jp['direction'] = NONE
+        open_buy = ((jp['direction'].iloc[-1] == 1) & (self.ticks['bid'].iloc[-1] < jp['bb_mavg'].iloc[-1]))
+        open_sell = ((jp['direction'].iloc[-1] == -1) & (self.ticks['ask'].iloc[-1] > jp['bb_mavg'].iloc[-1]))
+        jp.loc[jp.index[-1],'sigo'] = 1 if open_buy else -1 if open_sell else 0
+        close_sell = (self.ticks['bid'].iloc[-1] < jp['bb_lband'].iloc[-1])
+        close_buy = (self.ticks['ask'].iloc[-1] > jp['bb_hband'].iloc[-1])
+        jp.loc[jp.index[-1], 'sigc'] = 1 if close_sell else -1 if close_buy else 0
+        djd = jp[['direction']].tail(3)
+        djc = jp[['sigc']].tail(3)
+        djo = jp[['sigo']].tail(3)
         dj = pd.concat([djd, djc, djo], axis=1)
         if trace:
             print(dd)
@@ -194,6 +200,8 @@ class PmxRkoStrategy(Strategy):
                 self.renko_time = self.bricks.index[-1]
                 if self.count_time is not None:
                     self.count_time = self.bricks.index[-1]
+                tdelta = 0
+                self.fopen = False
                 print(f"{datetime.now()} {self.live['name']} changement renko {self.renko_time} "
                       f"ex {'sell' if self.bricks['open_renko'].iloc[-2] > self.bricks['close_renko'].iloc[-2] else 'buy'}")
             dd, dj = self.decision(tdelta==0 and not self.fopen)
@@ -208,7 +216,7 @@ class PmxRkoStrategy(Strategy):
             sdc, ssc, sso = dd['direction'].iloc[-2], dd['sigc'].iloc[-2], dd['sigo'].iloc[-2]
             pdc, psc, pso = dd['direction'].iloc[-3], dd['sigc'].iloc[-3], dd['sigo'].iloc[-3]
             ss = NONE
-            djc, djo = dj['sigc'].iloc[-2], dj['sigo'].iloc[-2]
+            djd, djc, djo = dj['direction'].iloc[-1], dj['sigc'].iloc[-1], dj['sigo'].iloc[-1]
             if lp > 0:
                 ls = BUY if self.positions[0].type == MetaTrader5.POSITION_TYPE_BUY else SELL
                 if not self.TimeisOpen():
@@ -221,7 +229,7 @@ class PmxRkoStrategy(Strategy):
                     if tdelta > 3600:
                         #ss = FCLOSE   # a revoir
                         msg = 'tOut'
-                    if (djc == BUY and ls == SELL) or (djc == SELL and ls == BUY):
+                    if (djc == BUY and ls == BUY) or (djc == SELL and ls == SELL):
                         ss = FCLOSE
                         msg = 'hout'
                 if ssc == 4 or ss == FCLOSE or (ls != sso and sso != NONE):

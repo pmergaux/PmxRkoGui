@@ -15,7 +15,7 @@ from multiprocessing import Queue
 from optimize.lstm_optimizer import run_optimization
 from optimize.optimization_worker import OptimizationWorker
 from utils.config_utils import indVal, tarVal
-from utils.lstm_utils import create_sequences, generate_param_combinations
+from utils.neural_utils import create_sequences, generate_param_combinations
 from utils.qwidget_utils import get_widget_from_dict, set_widget_from_dict, set_widget_from_list, get_widget_from_list, \
     qdate2datetime
 from utils.utils import load_ticks, to_number, reload_ticks_from_pickle

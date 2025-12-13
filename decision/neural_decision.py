@@ -1,5 +1,5 @@
 # decision/neural_decision.py
-from utils.lstm_utils import (
+from utils.neural_utils import (
     load_model, load_scaler, prepare_sequence, predict_sequence, get_feature_columns
 )
 from utils.utils import BUY, SELL, NONE  # ← CONSTANTES CENTRALES

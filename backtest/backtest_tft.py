@@ -11,6 +11,9 @@ from pytorch_forecasting.metrics import QuantileLoss
 import pandas as pd
 import numpy as np
 
+from decision.candle_decision import calculate_indicators
+from utils.renko_utils import tick21renko
+
 
 def to_renko(df, brick_size):
     """Convertit ticks (time, close) en Renko OHLC dataframe basique (sans volume, comme tes features)."""
@@ -215,56 +218,6 @@ import pandas as pd
 import numpy as np
 
 
-def to_renko(df, brick_size):
-    """Convertit ticks (time, close) en Renko OHLC dataframe basique (sans volume, comme tes features)."""
-    df = df[['time', 'close']].copy().dropna().reset_index(drop=True)
-
-    renko = []
-    start_price = df['close'][0]
-    current_brick_close = start_price
-    brick_time = df['time'][0]
-
-    for i in range(1, len(df)):
-        price = df['close'][i]
-        time = df['time'][i]
-
-        diff = price - current_brick_close
-        if abs(diff) < brick_size:
-            continue  # pas assez de mouvement
-
-        num_bricks = int(abs(diff) / brick_size)
-        direction = np.sign(diff)
-
-        for _ in range(num_bricks):
-            brick_open = current_brick_close
-            brick_close = current_brick_close + direction * brick_size
-            brick_high = max(brick_open, brick_close)
-            brick_low = min(brick_open, brick_close)
-
-            renko.append({
-                'time': brick_time,
-                'open': brick_open,
-                'high': brick_high,
-                'low': brick_low,
-                'close': brick_close,
-            })
-
-            current_brick_close = brick_close
-            brick_time = time
-
-    # Ajout du dernier brick si besoin
-    if renko:
-        renko_df = pd.DataFrame(renko)
-        renko_df['time_idx'] = range(len(renko_df))  # pour TFT
-        renko_df['time_max'] = renko_df['time'].max()  # pour cutoff
-        renko_df['symbol'] = 'ETHUSD'  # groupe fixe
-        renko_df['time_live'] = (renko_df['time'] - renko_df['time'].min()).dt.total_seconds() / 3600  # ex. en heures
-
-        return renko_df
-    else:
-        raise ValueError("Pas assez de mouvement pour créer des Renko.")
-
-
 def run_backtest(config):
     """
     Version corrigée : ticks → Renko → features → TFT.
@@ -277,7 +230,8 @@ def run_backtest(config):
         # ==================================================================
         # 1. Création des Renko à partir des ticks
         # ==================================================================
-        renko_df = to_renko(df, config['renko_size'])
+        renko_df = tick21renko(df, None, config['renko_size'], 'bid')
+        #renko_df = calculate_indicators(renko_df, config)
 
         # Ajout des features (EMA, RSI, MACD_hist) sur Renko
         # (utilise pandas_ta ou ta-lib si installé ; ici pandas simple pour EMA ex.)
@@ -288,7 +242,6 @@ def run_backtest(config):
         renko_df['avg_up'] = renko_df['up'].ewm(alpha=1 / config['rsi_period']).mean()
         renko_df['avg_down'] = renko_df['down'].ewm(alpha=1 / config['rsi_period']).mean()
         renko_df['RSI'] = 100 - 100 / (1 + renko_df['avg_up'] / renko_df['avg_down'])
-
         # MACD_hist (ex. simple)
         ema12 = renko_df['close'].ewm(span=12, adjust=False).mean()
         ema26 = renko_df['close'].ewm(span=26, adjust=False).mean()

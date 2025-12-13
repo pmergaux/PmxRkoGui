@@ -15,7 +15,7 @@ from datetime import datetime
 
 from decision.candle_decision import add_indicators
 from utils.config_utils import config_to_hash, prepare_to_hashcode
-from utils.lstm_utils import scale_features_only, config_to_features, assemble_with_targets, create_sequences_numba
+from utils.neural_utils import scale_features_only, config_to_features, assemble_with_targets, create_sequences_numba
 from utils.renko_utils import tick21renko
 from utils.utils import reload_ticks_from_pickle
 

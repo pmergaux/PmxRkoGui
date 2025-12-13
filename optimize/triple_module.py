@@ -7,6 +7,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # 0=all, 1=no info, 2=no warning, 3=er
 # Optionnel : désactive les protections Lightning qui tuent les processus
 os.environ["PL_TORCH_DISTRIBUTED_BACKEND"] = "gloo"
 import glob
+import gc
 
 import numpy as np
 import pandas as pd
@@ -18,44 +19,60 @@ import time
 
 VERSIONS = ['SIMPLE', 'ULTRA', 'LSTM', 'TRIPLE']
 # ====================== TES FONCTIONS EXISTANTES (à garder) ======================
-from utils.config_utils import config_to_hash, prepare_to_hashcode
+from utils.config_utils import config_to_hash, prepare_to_hashcode, params_base, features_base
 from utils.renko_utils import tick21renko
 from utils.utils import reload_ticks_from_pickle
-from utils.lstm_utils import scale_features_only, assemble_with_targets, create_sequences_numba, config_to_features, \
+from utils.neural_utils import scale_features_only, assemble_with_targets, create_sequences_numba, config_to_features, \
     nn_servers
 from decision.candle_decision import add_indicators, choix_features  # ← ton add_indicators Numba parfait
 
-
-# =========================================================== Les paramètres
-#features_base = ["EMA", "RSI", "MACD_hist", "close","time_live", "lstm"]
-params = {"renko_size": 17.1, "ema_period": 9, "rsi_period": 14, "rsi_high": 70, "rsi_low": 30, "macd": {"macd_fast": 12, "macd_slow": 26, "macd_signal": 9}}
 
 # =========================================================================
 # --- utilities
 # =========================================================================
 def to_config_std(config):
-    param = params.copy()
-    for name, value in param.items():
-        if isinstance(value, dict):
-            for k, v in value.items():
-                if k in config:
-                    param[name][k] = config[k]
-            continue
-        if name in config:
-            params[name] = config[name]
-    lstm = None
-    for col in config["features_base"]:
-        if col=='lstm':
-            lstm = {"lstm_seq_len": config["seq_len"], "lstm_units": config["lstm_units"],
-                           "lstm_threshold_buy": config["threshold_buy"]}
-    config_std = {"parameters": param, "features": config["features_base"],
-                  "target": {"target_col": config["target_col"], "target_type": config.get("target_type", 'direction'),
-                             "target_include": config.get("target_include", False)},
-                  "live": {"symbol": "ETHUSD"}}
-    if lstm is not None:
-        config_std['lstm'] = lstm
-    return config_std
-
+    try:
+        param = config.get('params_base', {}).copy()
+        if not param:
+            param = params_base.copy()
+        for name, value in param.items():
+            if isinstance(value, dict):
+                for k, v in value.items():
+                    if k in config:
+                        param[name][k] = config[k]
+                continue
+            if name in config:
+                param[name] = config[name]
+        lstm = None
+        features = config.get("features_base", [])
+        if not features:
+            features = features_base.copy()
+        for col in features:
+            if col=='lstm':
+                lstm = {"lstm_seq_len": config["seq_len"], "lstm_units": config["lstm_units"],
+                               "lstm_threshold_buy": config["threshold_buy"]}
+        config_std = {"parameters": param, "features": features,
+                      "target": {"target_col": config["target_col"], "target_type": config.get("target_type", 'direction'),
+                                 "target_include": config.get("target_include", False)},
+                      "live": {"symbol": "ETHUSD"}}
+        open_rules = config.get("open_rules", {})
+        if not open_rules:
+            config_std["open_rules"] = {"rule_ema":False if 'EMA' not in features else True, "rule_rsi":False if 'RSI' not in features else True,
+                          "rule_macd":False if 'MACD_hist' not in features else True,"rule_lstm":False if 'lstm' not in features else True}
+        close_rules = config.get("close_rules", {})
+        if not close_rules:
+            config_std["close_rules"] = {"close_sens":True}
+        if lstm is not None:
+            config_std['lstm'] = lstm
+        live = {}
+        if config.get('symbol', None) is not None:
+            live['symbol'] = config['symbol']
+        if live:
+            config_std['live'] = live
+        return config_std
+    except BaseException as e:
+        print("err create config_std", e)
+        return None
 # ====================== TARGETS SIMPLES ======================
 def prepare_targets_simple(df, horizon=5):
     df = df.copy()
@@ -70,13 +87,6 @@ def decision(df, config):
     features = config.get("features", None)
     if features is None:
         raise "inutile de poursuivre features inconnues"
-    open_rules = config.get("open_rules", {})
-    if not open_rules:
-        config["open_rules"] = {"rule_ema":False if 'EMA' not in features else True, "rule_rsi":False if 'RSI' not in features else True,
-                      "rule_macd":False if 'MACD_hist' not in features else True,"rule_lstm":False if 'lstm' not in features else True}
-    close_rules = config.get("close_rules", {})
-    if not close_rules:
-        config["close_rules"] = {"close_sens":True}
     df = choix_features(df, config)
     if 'direction' not in df.columns:
         df['direction'] = np.where(df['close'] > df['open'], 1, np.where(df['open'] > df['close'], -1, 0))
@@ -106,7 +116,6 @@ def lstm_train_ultra(X_train, y_train, X_val, y_val, units, seq_len, features_le
 
 # ---------- LSTM AMÉLIORÉ (le seul qui marche vraiment en trading) ----------
 def lstm_train_model(X_train, y_train, X_val, y_val, units, seq_len, features_len, dropout=0.2):
-    start = time.time()
     model = tf.keras.Sequential([
         tf.keras.Input(shape=(seq_len, features_len)),
         tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(units, return_sequences=True)),
@@ -118,21 +127,22 @@ def lstm_train_model(X_train, y_train, X_val, y_val, units, seq_len, features_le
     ])
     model.compile(optimizer=tf.keras.optimizers.Adam(1e-3), loss='huber', metrics=['mae'])
     model.fit(X_train, y_train, validation_data=(X_val, y_val), epochs=30, batch_size=32, verbose=0)
-    print(f"lstm model {(time.time()-start):.0f}")
     return model
 # ================== LSTM ULTRA-SIMPLE MAIS QUI GAGNE ==================
-def lstm_train_simple(X_tr, y_tr, X_va, y_va, seq, feats):
-    start = time.time()
-    model = tf.keras.Sequential([
-        tf.keras.Input(shape=(seq, feats)),
-        tf.keras.layers.LSTM(96, return_sequences=True),
-        tf.keras.layers.LSTM(48),
-        tf.keras.layers.Dense(1, activation='sigmoid')
-    ])
-    model.compile(optimizer='adam', loss='binary_crossentropy')
-    model.fit(X_tr, y_tr, validation_data=(X_va, y_va), epochs=35, batch_size=64, verbose=0)
-    print(f"lstm simple {(time.time()-start):.0f}")
-    return model
+def lstm_train_simple(X_tr, y_tr, X_va, y_va, seq, feats, units=96):
+    try:
+        model = tf.keras.Sequential([
+            tf.keras.Input(shape=(seq, feats)),
+            tf.keras.layers.LSTM(units, return_sequences=True),
+            tf.keras.layers.LSTM(units // 2),
+            tf.keras.layers.Dense(1, activation='sigmoid')
+        ])
+        model.compile(optimizer='adam', loss='binary_crossentropy')
+        model.fit(X_tr, y_tr, validation_data=(X_va, y_va), epochs=35, batch_size=64, verbose=0)
+        return model
+    except BaseException as e:
+        print("lstm simple err :", e)
+    return None
 # ============== TEMPORAL FUSION TRANSFORMER (le roi 2025) ===========
 def tft_train_predict_fast(train_df, val_df, test_df, features_cols, target_cols):
     start = time.time()
@@ -221,7 +231,7 @@ def tft_train_predict_fast(train_df, val_df, test_df, features_cols, target_cols
         train_loader = training.to_dataloader(
             train=True,
             batch_size=512,  # gros batch = rapide
-            num_workers=4,  # ← Set to 0 to prevent nested parallelism and SIGSEGV crashes
+            num_workers=0,  # ← Set to 0 to prevent nested parallelism and SIGSEGV crashes
             persistent_workers=False,
             shuffle=True,
             pin_memory=True  # ← GPU-ready même sur CPU
@@ -229,7 +239,7 @@ def tft_train_predict_fast(train_df, val_df, test_df, features_cols, target_cols
         val_loader = val_dataset.to_dataloader(
             train=False,
             batch_size=1024,
-            num_workers=4, # ← Set to 0
+            num_workers=0, # ← Set to 0
             pin_memory=True
         )
 
@@ -339,6 +349,8 @@ def tft_train_predict_fast(train_df, val_df, test_df, features_cols, target_cols
     except Exception as e:
         print(f"TFT échoué en {(time.time()-start):.0f} sec. → {e}")
         return np.full(len(test_df), 0.5)
+    finally:
+        del tft, trainer
 
 def tft_to_proba(raw_pred):
     """
@@ -539,16 +551,19 @@ def nbeats_train_predict(train_df, val_df, test_df, features_cols, target_cols):
 # 4. BACKTEST RÉALISTE
 # ==================================================================
 def backtest(df_test, proba, buy_thr=0.6, sell_thr=0.4):
-    nn = len(proba)
-    n = len(df_test)
-    if n != nn:
-        print("longueurs p",nn, 'df', n)
-    if nn < n:
-        df = df_test.iloc[-nn:].copy()
+    if proba is not None:
+        nn = len(proba)
+        n = len(df_test)
+        if n != nn:
+            print("longueurs p",nn, 'df', n)
+        if nn < n:
+            df = df_test.iloc[-nn:].copy()
+        else:
+            df = df_test.copy()
+        if nn > n:
+            proba = proba[-n:]
     else:
         df = df_test.copy()
-    if nn > n:
-        proba = proba[-n:]
     o_signal = np.zeros(len(df))
     c_signal = np.zeros(len(df))
     # proba = np.full(len(df_test), 2.5)
@@ -559,7 +574,7 @@ def backtest(df_test, proba, buy_thr=0.6, sell_thr=0.4):
         o_signal[p < sell_thr] = -1
         # === SIGNALS FERMETURE === (exemple, même que ouverture, ou ajuster) jamais 2 choix en une condition
         # il faut séparer en 2 conditions liées par | ou &
-        c_signal[(p < 0.55) & (p > 0.45)] = 1
+        c_signal[(p < 0.53) & (p > 0.47)] = 1
     # === RULES ===
     so = df['sigo'].values if 'sigo' in df.columns else np.zeros(len(df))
     sc = df['sigc'].values if 'sigc' in df.columns else np.zeros(len(df))
@@ -601,24 +616,50 @@ def backtest(df_test, proba, buy_thr=0.6, sell_thr=0.4):
     if len(a) == 0 or a.std() == 0:
         return -999999
     print(f"profit {np.sum(a):.2f} trades {len(a)} winner {np.sum(a > 0)} win rate {(np.sum(a > 0)/len(a)):.2%} moyenne {np.mean(a):.2f} écart type {np.std(a, ddof=1):.4f}")
+    result = {'profit': np.sum(a), 'trades': len(a), 'winner': np.sum(a > 0), 'win_rate': (np.sum(a > 0) / len(a)), 'mean': np.mean(a), 'std': np.std(a, ddof=1)}
     sharpe = a.mean() / a.std() * np.sqrt(365 * 390)   # calcul pour 390 renko/j. estimés
-    return sharpe * 1000
+    return sharpe * 1000, result
 
 # ==================================================================
 # 5. ÉVALUATION FINALE — LA VÉRITÉ
 # ==================================================================
 def run_backtest(config):
+    score = float('-inf')
     try:
+        # ← On charge les données ici, une fois par worker (ou même une fois globalement)
+        """
+        start_date = config['start_date']
+        end_date = config['end_date']
+        symbol = config['symbol']
+        start = datetime(*start_date)
+        end = datetime(*end_date)
+        base_name = f"../data/{symbol}_{start.strftime('%Y_%m_%d_%H_%M_%S')}_{end.strftime('%Y_%m_%d_%H_%M_%S')}.pkl"
+        df = reload_ticks_from_pickle(base_name, symbol, None, start, end)
+        if df is None or df.empty:
+            print("Pas de données → exit")
+            exit()
+        df['time'] = pd.to_datetime(df['time'])
+        """
+        if config is None:
+            raise Exception("no config no optim")
+        try:
+            df_renko = config['data']
+        except BaseException as e:
+            print("No data no optim", e)
+            return score, {}
+        del config['data']
         # 0. standardiser la config par exemple si on doit utiliser le hcode
         VERSION = config["VERSION"]
-        print(VERSION)
-        df = config["data"]
+        # print(VERSION)
         # ------------- standardiser les paramétrages
         config_std = to_config_std(config)
         # print("c std", config_std)
-        hcode = config_to_hash(prepare_to_hashcode(config_std))
-        # print("hcode", hcode)
-        config["hcode"] = hcode
+        try:
+            hcode = config_to_hash(prepare_to_hashcode(config_std))
+            # print("hcode", hcode)
+            config["hcode"] = hcode
+        except BaseException as e:
+            print("err hcode")
         # les colonnes data, cible...
         features_cols, target_cols, total_cols = config_to_features(config_std)
         config_std["features"] = features_cols
@@ -629,11 +670,18 @@ def run_backtest(config):
         thresh_buy = config['threshold_buy']
         thresh_sell = config['threshold_sell']
         # 1. Renko + indicateurs
-        df_bricks = tick21renko(df, None, renko_size, 'bid')
-        df_renko = add_indicators(df_bricks, config_std["parameters"])
-        if len(df_renko) < 1000:
-            print("pas assez de renko", len(df_renko))
-            return float('-inf')
+        """
+        try:
+            df_bricks = tick21renko(df, None, renko_size, 'bid')
+        except BaseException as e:
+            print("err create renko", e)
+            return score, {}
+        """
+        try:
+            df_renko = add_indicators(df_renko, config_std["parameters"])
+        except BaseException as e:
+            print("err add indicators ", e)
+            return score, {}
         # 2. Features
         need_nn = False
         for col in total_cols:
@@ -651,6 +699,9 @@ def run_backtest(config):
             target_cols = tarc
         proba = None
         if need_nn:
+            if len(df_renko) < seq_len*4:
+                print("pas assez de renko", len(df_renko))
+                return score, {}
             # 3. Split
             train_len = int(len(df_renko) * 0.65)
             val_len = int(len(df_renko) * 0.15)
@@ -667,7 +718,7 @@ def run_backtest(config):
             X_test_seq, _ = create_sequences_numba(test_r, seq_len, len(features_cols))
 
             if len(X_train_seq) < 50:
-                return float('-inf')
+                return float('-inf'), {}
             # 6. Returns pour backtest fini !
             # returns = np.diff(test_df['close'].values[-len(X_test_seq):])
             test_return = test_df.iloc[-len(X_test_seq):]
@@ -678,11 +729,14 @@ def run_backtest(config):
                     test_return = decision(test_return, config_std)
                     continue
                 if 'SIMPLE'==vs:
-                    model = lstm_train_simple(X_train_seq, y_train_seq, X_val_seq, y_val_seq, seq_len, len(features_cols))
+                    start = time.time()
+                    model = lstm_train_simple(X_train_seq, y_train_seq, X_val_seq, y_val_seq, seq_len, len(features_cols), units)
                     # print("pred simple")
                     pred = model.predict(X_test_seq, verbose=0).flatten()
                     proba = pred
+                    print(f"lstm simple {(time.time() - start):.0f}")
                     # score = backtest(test_df.iloc[-len(proba):], proba, thresh_buy, thresh_sell)
+                    del model
                     continue
                 if 'ULTRA'==vs:
                     model = lstm_train_ultra(X_train_seq, y_train_seq, X_val_seq, y_val_seq, units, seq_len, len(features_cols))
@@ -690,13 +744,17 @@ def run_backtest(config):
                     proba_lstm = model.predict(X_test_seq, verbose=0).flatten()
                     proba = proba_lstm
                     # score = backtest(test_df.iloc[-len(proba_lstm):], proba_lstm, thresh_buy, thresh_sell)
+                    del model
                     continue
                 if 'LSTM'==vs:
+                    start = time.time()
                     model = lstm_train_model(X_train_seq, y_train_seq, X_val_seq, y_val_seq, units, seq_len, len(features_cols))
                     # print("pred model")
                     proba_lstm = model.predict(X_test_seq, verbose=0).flatten()
                     proba = (proba_lstm + 1) / 2  # tanh → [0,1]
+                    print(f"lstm model {(time.time() - start):.0f}")
                     # score = backtest(test_df.iloc[-len(proba_lstm):], proba_lstm, thresh_buy, thresh_sell)
+                    del model
                     continue
                 if 'TFT'==vs:
                     # === TFT ===
@@ -707,6 +765,7 @@ def run_backtest(config):
                     model = lstm_train_model(X_train_seq, y_train_seq, X_val_seq, y_val_seq, units, seq_len, len(features_cols))
                     proba_lstm = model.predict(X_test_seq, verbose=0).flatten()
                     proba_lstm = (proba_lstm + 1) / 2  # tanh → [0,1]
+                    del model
                     # === TFT ===
                     proba_tft = tft_train_predict(train_df, val_df, test_df, features_cols, target_cols)
                     if proba_tft is not None:
@@ -726,18 +785,24 @@ def run_backtest(config):
                     proba = np.clip(proba, 0.01, 0.99)
                     break
         else:
-            test_df = df_renko.iloc[-int(len(df_renko)*0.2):]
+            print("len rko", int(len(df_renko)*0.2))
+            test_df = df_renko.iloc[-min(120, int(len(df_renko)*0.2)):]
             test_return = decision(test_df, config_std)
             proba = None
         # 7. Backtest réaliste
         # print("bt")
         try:
-            score = backtest(test_return, proba, thresh_buy, thresh_sell)
+            score, result = backtest(test_return, proba, thresh_buy, thresh_sell)
         except BaseException as e:
             print("BT err ", e)
+            result = {}
         print(f"{VERSION} = {target_cols} | {renko_size:5.1f} | {config['ema_period']} | {config['rsi_period']} | {seq_len:3d} | {units:3d} | {thresh_buy:.3f}/{thresh_sell:.3f} → Score {score:8.1f}")
-        return score
+        return score, result
 
     except Exception as e:
         print("ERREUR →", e)
-        return float('-inf')
+        return score, {}
+    finally:
+        # Explicitly clear the Keras session and collect garbage
+        tf.keras.backend.clear_session()
+        gc.collect()

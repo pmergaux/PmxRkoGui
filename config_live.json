@@ -1,6 +1,6 @@
 {
   "parameters": {
-    "renko_size": 10.1,
+    "renko_size": 17.2,
     "ema_period": 9,
     "rsi_period": 14,
     "rsi_high": 70.0,
@@ -25,7 +25,7 @@
   "features": [
     "EMA",
     "RSI",
-    "MACD_hist",
+    "MACD_line",
     "",
     "",
     "time_live"

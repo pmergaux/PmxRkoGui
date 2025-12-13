@@ -5,8 +5,11 @@ import os
 
 from PyQt6.QtWidgets import QFileDialog, QWidget
 
-indVal = ['', 'LSTM', 'EMA', 'RSI', 'MACD_line', 'ATR', 'CCI', 'Stoch RSI']
+indVal = ['', 'LSTM', 'EMA', 'RSI', 'MACD_hist', 'ATR', 'CCI', 'Stoch RSI']
 tarVal = ['', 'close', 'EMA', 'RSI']
+features_base = ["EMA", "RSI", "MACD_hist", "close", "time_live", "lstm"]
+params_base = {"renko_size": 17.1, "ema_period": 9, "rsi_period": 14, "rsi_high": 70, "rsi_low": 30,
+                "macd": {"macd_fast": 12, "macd_slow": 26, "macd_signal": 9}}
 
 def config_to_hash(config: dict) -> str:
     """Hash unique pour une config → nom de modèle"""

@@ -75,7 +75,6 @@ TF2MT = {'1m':MetaTrader5.TIMEFRAME_M1,
         '1w':MetaTrader5.TIMEFRAME_W1,
         }
 
-
 sens_lib = ['sell_stop', 'sell_cont', 'sell', 'none', 'buy', 'buy_cont', 'buy_stop']
 
 mt5 = None
@@ -300,3 +299,21 @@ def safe_float(value, default='N/A', fmt='.2f'):
         return f"{f:{fmt}}"
     except (ValueError, TypeError):
         return default
+
+def clean_numpy_types(data):
+    """
+    Parcourt récursivement un dictionnaire ou une liste pour convertir
+    les types NumPy en types Python natifs.
+    """
+    if isinstance(data, dict):
+        return {key: clean_numpy_types(value) for key, value in data.items()}
+    if isinstance(data, list):
+        return [clean_numpy_types(item) for item in data]
+    if isinstance(data, np.integer):
+        return int(data)
+    if isinstance(data, np.floating):
+        return float(data)
+    if isinstance(data, np.ndarray):
+        return data.tolist()
+    return data
+

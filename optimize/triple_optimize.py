@@ -27,7 +27,7 @@ VERSIONS = ['SIMPLE', 'ULTRA', 'LSTM', 'TRIPLE']
 from utils.config_utils import config_to_hash, prepare_to_hashcode
 from utils.renko_utils import tick21renko
 from utils.utils import reload_ticks_from_pickle
-from utils.lstm_utils import scale_features_only, assemble_with_targets, create_sequences_numba, config_to_features, \
+from utils.neural_utils import scale_features_only, assemble_with_targets, create_sequences_numba, config_to_features, \
     nn_servers
 from decision.candle_decision import add_indicators, choix_features  # ← ton add_indicators Numba parfait
 
@@ -580,16 +580,19 @@ def nbeats_train_predict(train_df, val_df, test_df, features_cols, target_cols):
 # 4. BACKTEST RÉALISTE
 # ==================================================================
 def backtest(df_test, proba, buy_thr=0.6, sell_thr=0.4):
-    nn = len(proba)
-    n = len(df_test)
-    if n != nn:
-        print("longueurs p",nn, 'df', n)
-    if nn < n:
-        df = df_test.iloc[-nn:].copy()
+    if proba is not None:
+        nn = len(proba)
+        n = len(df_test)
+        if n != nn:
+            print("longueurs p",nn, 'df', n)
+        if nn < n:
+            df = df_test.iloc[-nn:].copy()
+        else:
+            df = df_test.copy()
+        if nn > n:
+            proba = proba[-n:]
     else:
         df = df_test.copy()
-    if nn > n:
-        proba = proba[-n:]
     o_signal = np.zeros(len(df))
     c_signal = np.zeros(len(df))
     # proba = np.full(len(df_test), 2.5)
@@ -621,7 +624,7 @@ def backtest(df_test, proba, buy_thr=0.6, sell_thr=0.4):
             pos = po if po != 0 else so[i]
             entry_price = close
             continue
-        elif pos != 0 and (pc!=0 or (po!=0 and po!= pos) or sc[i]!=0 or (so[i]!=0 and so[i]!=pos)):
+        elif pos != 0 and (pc!=0 or (po!=0 and po!= pos) or (sc[i]!=0 and (so[i]==0 or (so[i]!=0 and so[i]!=pos))) or (so[i]!=0 and so[i]!=pos)):
             # sortie forcée si signal neutre ou de sens opposé
             pnl.append(pos * (close - entry_price) - spread_dollar)
             pos = 0
@@ -784,7 +787,7 @@ def evaluate_config(config):
 # ====================== MAIN — 100 ESSAIS — LE GRAAL ======================
 if __name__ == "__main__":
     print("DÉBUT OPTIMISATION — 100 ESSAIS")
-    alea = False
+    alea = True
     best_score = float('-inf')
     best_config = None
     results = []
@@ -795,7 +798,7 @@ if __name__ == "__main__":
                 'renko_size': round(random.uniform(8, 18), 1),
                 'ema_period': random.randint(8, 12),
                 'rsi_period': random.randint(12, 16),
-                'target_col': random.choice(['close', 'EMA','target_sign_mean']),
+                'target_col': random.choice(['close', 'EMA']),  #,'target_sign_mean']),
                 'target_type': 'direction',
                 # inutile si lstm ou autre nn non dans features
                 'seq_len': random.randint(20, 120),
@@ -803,8 +806,8 @@ if __name__ == "__main__":
                 'threshold_buy': round(random.uniform(0.55, 0.75), 3),
                 'threshold_sell': round(random.uniform(0.25, 0.45), 3),
                 #'VERSION': random.choice([['SIMPLE'], ['ULTRA'], ['LSTM'], ['TRIPLE']]),
-                'features_base': ["EMA", "RSI", "MACD_hist", "close", "time_live", "TFT"],
-                'VERSION':['TFT'],
+                'features_base': ["EMA", "RSI", "MACD_hist", "close", "time_live", "lstm"],
+                'VERSION':['DECISION', 'SIMPLE'],
                 'hcode': ''
             }
             score = evaluate_config(config)

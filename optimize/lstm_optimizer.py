@@ -16,7 +16,7 @@ import numpy as np
 
 from utils.renko_utils import tick21renko, colonnesRko
 from decision.candle_decision import calculate_indicators, choix_features
-from utils.lstm_utils import create_sequences, build_transformer, clean_features, build_transformer_tunable, \
+from utils.neural_utils import create_sequences, build_transformer, clean_features, build_transformer_tunable, \
     generate_param_combinations
 
 log = logging.getLogger(__name__)
