@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 
 from train.trainer import lgbm_predit, xgb_predict, lstm_predict_model, mlp_predict
-from utils.model_utils import create_sequences_numba
+from utils.model_utils import create_sequences_numba, config_to_features
 from utils.scaler_utils import load_and_transform
 from .base import Strategy
 from utils.renko_utils import tick21renko
@@ -31,8 +31,6 @@ class PmxRkoStrategy(Strategy):
         self.debut = False
         self.minimum = config["lstm"]["lstm_seq_len"] * 4
         self.fopen = False
-        self.model = None
-        self.scaler = None
 
     def calcul_ai(self, trace=False):
         test_p = self.bricks[:-1]
@@ -85,22 +83,15 @@ class PmxRkoStrategy(Strategy):
 
     def decision_ai(self, trace=False):
         try:
-            features_cols = self.cfg['features']
-            print("feat", features_cols)
-            target_cols = self.cfg['target']['target_col']
-            print("tg", target_cols)
+            features_cols, target_cols, total_cols = config_to_features(self.cfg)
+            print("feat", features_cols, "tg", target_cols)
             if not isinstance(target_cols, list):
                 target_cols = [target_cols]
             #target_type = self.cfg['target']['target_type']
             df = self.display[-256:].copy()
-            try:
-                X_test = load_and_transform(self.scaler, df[features_cols])
-            except BaseException as e:
-                print("err create Xtest", e)
-            print("len Xtest", len(X_test) if X_test is not None else 'None')
+            X_test = load_and_transform(self.scaler, df[features_cols])
             y_test = df[target_cols].to_numpy(dtype=np.float32)
             test_r = np.hstack([X_test, y_test])
-            print("len Rtest", len(test_r) if test_r is not None else 'None')
             X_test_seq, _ = create_sequences_numba(test_r, self.cfg['lstm']['lstm_seq_len'], len(features_cols))
             print("len Xseq", len(X_test_seq) if X_test_seq is not None else 'None', self.cfg['lstm']['lstm_seq_len'])
             if 'LGBM' in self.version:

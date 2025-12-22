@@ -73,6 +73,11 @@ class Strategy(QThread):
         if os.path.exists(path):
             with open(path, 'rb') as f:
                 self.scaler = pickle.load(f)
+        else:
+            print(f"Base no scaler found {path}")
+            return
+        if self.scaler is None:
+            print("Base err load scaler")
 
     def change_param(self):
         period = self.initPeriod(self._param['timeframe'])

@@ -16,16 +16,16 @@ params_base = {"renko_size": 17.1, "ema_period": 9, "rsi_period": 14, "rsi_high"
                "threshold_buy": 0.6, "threshold_sell": 0.4}
 lstm_base = {"lstm_seq_len": 48, "lstm_units": 96}
 mlp_base = {"mlp_unit1": 128, "mlp_unit2": 64,"mlp_dropout": 0.3,
-                    "mlp_lr": 0.001, "lp_batch_size": 256, "mlp_patience": 10 }
+                    "mlp_lr": 0.001, "mlp_batch_size": 256, "mlp_patience": 10 }
 lgbm_base = {"lgbm_learning_rate": 0.05, "lgbm_num_leaves": 31, "lgbm_n_estimators": 1000,
              "lgbm_feature_fraction": 0.8, "lgbm_bagging_fraction": 0.8,
              "lgbm_min_child_samples": 20, "lgbm_early_stop_rounds": 20}
 xgb_base = {"xgb_learning_rate": 0.05, "xgb_max_depth": 6, "xgb_n_estimators": 1000,
-            "xgb_subsample": 0.8, "xbg_colsample_bytree": 0.8, "xgb_early_stop_rounds":50}
+            "xgb_subsample": 0.8, "xgb_colsample_bytree": 0.8, "xgb_early_stop_rounds":50}
 config_base = {"parameters": params_base, "features": features_base, "lstm": lstm_base, "mlp": mlp_base,
                "lgbm": lgbm_base, "xgb": xgb_base}
-trans = {"EMA": ["ema_period"], "RSI": ["rsi_period", "rsi_high", "rsi_low"], "MACD_histo": ["macd"],
-         "CCI": ["cci__period", "cci_high", "cci_low"], "ATR}": ["atr_period"], "close":"close", "time_live": "time_live"}
+trans = {"EMA": ["ema_period"], "RSI": ["rsi_period", "rsi_high", "rsi_low"], "MACD_hist": ["macd"],
+         "CCI": ["cci__period", "cci_high", "cci_low"], "ATR}": ["atr_period"], "close":["close"], "time_live": ["time_live"]}
 
 
 def config_to_hash(config: dict) -> str:
@@ -59,6 +59,8 @@ def prepare_to_hashcode(config:dict):
     features = config["features"]
     lstm = config.get("lstm", None)
     mlp = config.get("mlp", None)
+    lgbm = config.get("lgbm", None)
+    xgb = config.get("xgb", None)
     target = config["target"]
     live = config["live"]
     params = {"renko_size":parameters["renko_size"]}
@@ -79,23 +81,50 @@ def prepare_to_hashcode(config:dict):
             if mlp is None:
                 mlp = mlp_base.copy()
             ret['mlp'] = mlp
+            break
+        if vs == 'LGBM':
+            if lgbm is None:
+                lgbm = lgbm_base.copy()
+            ret['lgbm'] = lgbm
+            break
+        if vs == 'XGB':
+            if xgb is None:
+                xgb = xgb_base.copy()
+            ret['xgb'] = xgb
+            break
     return ret
 
 def to_config_std(config):
     try:
-        config_live = load_config(None, "../config_live.json").copy()
+        config_live = load_config(None, "../config_live.json")
+    except BaseException as e:
+        print("err chargement config live", e)
+        return None
+    try:
+        if config_live is None:
+            print("No config No Optim")
+            return None
         config_std = config_live.copy()
-        params_live = config_live["parameters"]
-        features_cfg = config['features'].copy()        # features obligatoires
-        params = {}
+        params_live = config_live.get("parameters")
+        if params_live is None:
+            print("err cfg no live param")
+            return None
+        features_cfg = config.get('features')        # features obligatoires
+        if features_cfg is None:
+            print("No features No optim")
+            return None
+        # print("feat", features_cfg)
+        params = {"renko_size": config.get("renko_size", config_live.get("renko_size", 36.1))}
         features = []
         for name in features_cfg:
             if name in trans.keys():
                 features.append(name)
                 for value in trans[name]:
+                    # print("val", name, value)
                     if value == name:
-                        break
+                        continue
                     params[value] = config.get(value, params_live.get(value, params_base[value]))
+        # print("pam", params)
         version = config.get("VERSION", [])
         for vs in version:
             if vs in nn_servers:
@@ -105,41 +134,36 @@ def to_config_std(config):
                 params["threshold_sell"] = config.get("threshold_sell",
                                                  params_live.get("threshold_sell",
                                                                                 params_base["threshold_sell"]))
+                break
         config_std["parameters"] = params
         config_std['features'] = features
+    except BaseException as e:
+        print(f"création config std paramètres {e}")
+        return None
+    try:
         lstm = None
         mlp = None
         lgbm = None
         xgb = None
         for vs in version:
             if vs in ['SIMPLE', 'ULTRA', 'LSTM']:
-                lstm = {"lstm_seq_len": config.get("lstm_seq_len", lstm_base["lstm_seq_len"]),
-                            "lstm_units": config.get("lstm_units", lstm_base["lstm_units"])}
+                if lstm is not None:
+                    continue
+                lstm = {}
+                for key in lstm_base.keys():
+                    lstm[key] = config.get(key, lstm_base[key])
             if vs == 'MLP':
-                mlp = {"mlp_unit1": config.get("mlp_unit1", mlp_base["mlp_unit1"]),
-                    "mlp_unit2": config.get("mlp_unit2", mlp_base["mlp_unit2"]),
-                    "mlp_dropout": config.get("mlp_dropout", mlp_base["mlp_dropout"]),
-                    "mlp_lr": config.get("mlp_lr", mlp_base["mlp_lr"]),
-                    "mlp_batch_size": config.get("mlp_batch_size", mlp_base["mlp_batch_size"]),
-                    "mlp_patience": config.get("mlp_patience", mlp_base["mlp_patience"])
-                       }
-            if vs == 'LGBM:':
-                lgbm = {"lgbm_learning_rate": config.get("lgbm_learning_rate", lgbm_base["lgbm_learning_rate"]),
-                        "lgbm_num_leaves": config.get("lgbm_num_leaves", lgbm_base["lgbm_num_leaves"]),
-                        "lgbm_n_estimators": config.get("lgbm_n_estimators", lgbm_base["lgbm_n_estimators"]),
-                        "lgbm_feature_fraction": config.get("lgbm_num_leaves", lgbm_base["lgbm_num_leaves"]),
-                        "lgbm_bagging_fraction": config.get("lgbm_bagging_fraction", lgbm_base["lgbm_bagging_fraction"]),
-                        "lgbm_min_child_samples": config.get("lgbm_min_child_samples", lgbm_base["lgbm_min_child_samples"]),
-                        "lgbm_early_stop_rounds": config.get("lgbm_early_stop_rounds", lgbm_base["lgbm_early_stop_rounds"])
-                        }
+                mlp = {}
+                for key in mlp_base.keys():
+                    mlp[key] = config.get(key, mlp_base[key])
+            if vs == 'LGBM':
+                lgbm = {}
+                for key in lgbm_base.keys():
+                    lgbm[key] = config.get(key, lgbm_base[key])
             if vs == 'XGB':
-                xgb = {"xgb_learning_rate": config.get("xgb_learning_rate", xgb_base["xgb_learning_rate"]),
-                       "xgb_max_depth": config.get("xgb_max_depth", xgb_base["xgb_max_depth"]),
-                       "xgb_n_estimators": config.get("xgb_n_estimators", xgb_base["xgb_n_estimators"]),
-                       "xgb_subsample": config.get("xgb_subsample", xgb_base["xgb_subsample"]),
-                       "xbg_colsample_bytree": config.get("xbg_colsample_bytree", xgb_base["xbg_colsample_bytree"]),
-                       "xgb_early_stop_rounds": config.get("xgb_early_stop_rounds", xgb["xgb_early_stop_rounds"])
-                       }
+                xgb = {}
+                for key in xgb_base.keys():
+                    xgb[key] = config.get(key, xgb_base[key])
         if lstm is not None:
             config_std['lstm'] = lstm
         if mlp is not None:
@@ -148,6 +172,10 @@ def to_config_std(config):
             config_std['lgbm'] = lgbm
         if xgb is not None:
             config_std['xgb'] = xgb
+    except BaseException as e:
+        print(f"err create config std réseaux {e}")
+        return None
+    try:
         open_rules = config.get("open_rules", {})
         if not open_rules:
             config_std["open_rules"] = {"rule_ema":False if 'EMA' not in features else True, "rule_rsi":False if 'RSI' not in features else True,

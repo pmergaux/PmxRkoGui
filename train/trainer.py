@@ -94,8 +94,9 @@ def mlp_train(X_train, y_train, X_val, y_val, features_len,
 # Extrêmement rapide et souvent plus performant que les réseaux de neurones
 # sur des données "tabulaires" comme les vôtres.
 #
-def lgbm_predit(model, X_test):
-    # Prédiction des probabilités de la classe "1" (signal d'achat)
+def lgbm_predict(model, X_test):
+    """Prédiction sans warning"""
+    # Si X_test est un DataFrame, on garde les noms de colonnes
     proba = model.predict_proba(X_test)[:, 1]
     return proba
 
@@ -129,19 +130,17 @@ def lgbm_train(X_train, y_train, X_val, y_val,
         'min_child_samples': min_child_samples,
         'verbose': -1,
         'n_jobs': -1,
-        'random_state': 42
+        'random_state': 42,
+        'feature_name': 'ignore'
         #'seed': 42
     }
-
     model = lgb.LGBMClassifier(**params)
-
     model.fit(
         X_train, y_train.ravel(),
         eval_set=[(X_val, y_val.ravel())],
         eval_metric='auc',
         callbacks=[lgb.early_stopping(early_stop_rounds, verbose=False)]
     )
-
     best_iter = model.best_iteration_
     print(f"LightGBM entraîné en {(time.time() - start_time):.1f}s | "
           f"best iteration = {best_iter if best_iter else n_estimators}")
@@ -177,7 +176,6 @@ def xgb_train(X_train, y_train, X_val, y_val,
     """
     start_time = time.time()
     print("Démarrage de l'entraînement XGBoost...")
-
     params = {
         'objective': 'binary:logistic',
         'eval_metric': 'auc',
@@ -189,26 +187,14 @@ def xgb_train(X_train, y_train, X_val, y_val,
         'n_jobs': -1,
         'random_state': 42,                  # remplace 'seed' déprécié
         'tree_method': 'hist',               # rapide sur CPU
-        'verbosity': 0                        # équivalent verbose=-1
-        #early_stopping_rounds = 50,  # ← maintenant accepté ici
+        'verbosity': 0,                        # équivalent verbose=-1
+        'early_stopping_rounds' : early_stop_rounds,  # ← maintenant accepté ici
     }
     model = xgb.XGBClassifier(**params)
-
-    # Early stopping via callback (méthode la plus stable en 2025)
-    early_stop = xgb.callback.EarlyStopping(
-        rounds=early_stop_rounds,
-        metric_name='auc',
-        data_name='validation_0',
-        save_best=True                       # récupère automatiquement le meilleur modèle
-    )
-    """
-    model.fit( X_train,  y_train.ravel(), eval_set=[(X_val, y_val.ravel())],  verbose=False )
-    """
     model.fit(
         X_train,
         y_train.ravel(),
         eval_set=[(X_val, y_val.ravel())],
-        callbacks=[early_stop],
         verbose=False
     )
     best_iter = model.best_iteration
@@ -240,6 +226,7 @@ def lstm_predict_model(model, X_test):
     return proba
 
 def lstm_train_model(X_train, y_train, X_val, y_val, units, seq_len, features_len, dropout=0.2):
+    start = time.time()
     model = tf.keras.Sequential([
         tf.keras.Input(shape=(seq_len, features_len)),
         tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(units, return_sequences=True)),
@@ -251,9 +238,11 @@ def lstm_train_model(X_train, y_train, X_val, y_val, units, seq_len, features_le
     ])
     model.compile(optimizer=tf.keras.optimizers.Adam(1e-3), loss='huber', metrics=['mae'])
     model.fit(X_train, y_train, validation_data=(X_val, y_val), epochs=30, batch_size=32, verbose=0)
+    print(f"lstm model {(time.time()-start):.0f}")
     return model
 # ================== LSTM ULTRA-SIMPLE MAIS QUI GAGNE ==================
 def lstm_train_simple(X_tr, y_tr, X_va, y_va, seq, feats, units=96):
+    start = time.time()
     try:
         model = tf.keras.Sequential([
             tf.keras.Input(shape=(seq, feats)),
@@ -264,6 +253,7 @@ def lstm_train_simple(X_tr, y_tr, X_va, y_va, seq, feats, units=96):
         model.compile(optimizer='adam', loss='binary_crossentropy')
         model.fit(X_tr, y_tr, validation_data=(X_va, y_va), epochs=35,
                   batch_size=64, verbose=0)
+        print(f"lstm simple {(time.time() - start):.0f}")
         return model
     except BaseException as e:
         print("lstm simple err :", e)

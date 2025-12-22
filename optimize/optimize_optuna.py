@@ -2,8 +2,8 @@ import gc
 import json
 import os
 import sys
+import time
 
-import numpy as np
 import pandas as pd
 import optuna
 from joblib import Parallel, delayed
@@ -157,17 +157,18 @@ def evaluate_trial(config):
 # ======================================================================
 # SCRIPT PRINCIPAL
 # ======================================================================
-if __name__ == "__main__":
+def optimize_start():
     if not os.path.exists(RENKO_CACHE_DIR):
         print(f"ERREUR: Le dossier '{RENKO_CACHE_DIR}' n'existe pas.")
         exit()
+    start_time = time.time()
     reprise = False
     if not reprise:
         # 1. Création de l'étude Optuna
         study = optuna.create_study(direction='maximize')
         # 2. Définition du nombre d'essais et de workers
-        n_trials = 500
-        n_jobs = 10  # Nombre de processus à utiliser en parallèle
+        n_trials = 1800
+        n_jobs = 9  # Nombre de processus à utiliser en parallèle
         print(f"Démarrage de l'optimisation Optuna pour {n_trials} essais sur {n_jobs} coeurs...")
         # 3. Boucle d'optimisation manuelle pour la parallélisation
         total_results = []
@@ -184,20 +185,20 @@ if __name__ == "__main__":
                     'threshold_buy': trial.suggest_float('threshold_buy', 0.55, 0.8, step=0.05),
                     'threshold_sell': trial.suggest_float('threshold_sell', 0.2, 0.45, step=0.05),
                     'lstm_seq_len': trial.suggest_int('lstm_seq_len', 24, 144, step=24),
-                    'lstm_units': trial.suggest_int('lstm_units', 48, 192, step=48),
-                    'lgbm_learning_rate': [0.01, 0.03, 0.05],
-                    'lgbm_num_leaves': [31, 63, 127],
-                    'lgbm_feature_fraction': [0.7, 0.8, 0.9],
-                    'lgbm_bagging_fraction': [0.7, 0.8, 0.9],
-                    'lgbm_min_child_samples': [20, 50],
-                    'lgbm_early_stop_rounds': [20, 50],
+                    'lstm_units': trial.suggest_int('lstm_units', 48, 256, step=48),
+                    'lgbm_learning_rate': trial.suggest_categorical('lgbm_learning_rate',[0.01, 0.03, 0.05]),
+                    'lgbm_num_leaves': trial.suggest_categorical('lgbm_num_leaves',[31, 63, 127]),
+                    'lgbm_feature_fraction': trial.suggest_categorical('lgbm_feature_fraction',[0.7, 0.8, 0.9]),
+                    'lgbm_bagging_fraction': trial.suggest_categorical('lgbm_bagging_fraction',[0.7, 0.8, 0.9]),
+                    'lgbm_min_child_samples': trial.suggest_categorical('lgbm_min_child_samples',[20, 50]),
+                    'lgbm_early_stop_rounds': trial.suggest_categorical('lgbm_early_stop_rounds',[20, 50]),
                     'mlp_unit1': trial.suggest_int('mlp_unit1', 128, 256, step=128),
                     'mlp_unit2': 0,
                     'mlp_dropout': trial.suggest_float('mlp_dropout', 0.2, 0.5, step=0.1),
-                    'xgb_learning_rate': [0.01, 0.03, 0.05],
-                    'xgb_max_depth': [4, 6, 8],
-                    'xgb_subsample': [0.7, 0.8, 0.9],
-                    'xgb_colsample_bytree': [0.7, 0.8, 0.9],
+                    'xgb_learning_rate': trial.suggest_categorical('xgb_learning_rate',[0.01, 0.03, 0.05]),
+                    'xgb_max_depth': trial.suggest_categorical('xgb_max_depth',[4, 6, 8]),
+                    'xgb_subsample': trial.suggest_categorical('xgb_subsample',[0.7, 0.8, 0.9]),
+                    'xgb_colsample_bytree': trial.suggest_categorical('xgb_colsample_bytree',[0.7, 0.8, 0.9]),
                     'xgb_early_stop_rounds': 50,
                     'features': ['EMA', 'RSI', 'MACD_hist', 'close'],
                     'VERSION': [trial.suggest_categorical('VERSION', ['SIMPLE', 'ULTRA', 'MLP', 'LGBM', 'XGB'])],
@@ -231,8 +232,9 @@ if __name__ == "__main__":
         with open("best_params_optuna.json", "w") as f:
             json.dump(best_params, f, indent=2)
         tops = sorted(total_results, key=lambda x: x[0], reverse=True)
-        for i in range(5):
+        for i in range(20):
             print(tops[i])
+        print(f"optimisation en {(time.time() - start_time):.0f}")
 
         # Créer la configuration complète avec les meilleurs paramètres
         final_config = {
@@ -244,12 +246,23 @@ if __name__ == "__main__":
             'threshold_sell': best_params['threshold_sell'],
             'lstm_seq_len': best_params['lstm_seq_len'],
             'lstm_units': best_params['lstm_units'],
+            'lgbm_learning_rate': best_params['lgbm_learning_rate'],
+            'lgbm_num_leaves': best_params['lgbm_num_leaves'],
+            'lgbm_feature_fraction': best_params['lgbm_feature_fraction'],
+            'lgbm_bagging_fraction': best_params['lgbm_bagging_fraction'],
+            'lgbm_min_child_samples': best_params['lgbm_min_child_samples'],
+            'lgbm_early_stop_rounds': best_params['lgbm_early_stop_rounds'],
             'mlp_unit1': best_params['mlp_unit1'],
             'mlp_unit2': 0,
             'mlp_dropout': best_params['mlp_dropout'],
+            'xgb_learning_rate': best_params['xgb_learning_rate'],
+            'xgb_max_depth': best_params['xgb_max_depth'],
+            'xgb_subsample': best_params['xgb_subsample'],
+            'xgb_colsample_bytree': best_params['xgb_colsample_bytree'],
+            'xgb_early_stop_rounds': 50,
             'VERSION': [best_params['VERSION']],
             'target_type': 'direction',
-            'features_base': ["EMA", "RSI", "MACD_hist", "close"],
+            'features': ["EMA", "RSI", "MACD_hist", "close"],
         }
     else:
         final_config = {
@@ -263,9 +276,7 @@ if __name__ == "__main__":
             'units': 106,
             'VERSION': ['ULTRA'],
             'target_type': 'direction',
-            'features_base': ["EMA", "RSI", "MACD_hist", "close"],
-            'params_base': {"renko_size": 17.1, "ema_period": 9, "rsi_period": 14, "rsi_high": 70, "rsi_low": 30,
-                            "macd": {"macd_fast": 12, "macd_slow": 26, "macd_signal": 9}},
+            'features': ["EMA", "RSI", "MACD_hist", "close"],
         }
     # Charger les données renko correspondantes
     renko_size = final_config['renko_size']
@@ -280,9 +291,12 @@ if __name__ == "__main__":
     else:
         print(f"Fichier Renko manquant pour la meilleure configuration: {file_path}")
         sys.exit(2)
-
     confid_std = to_config_std(final_config)
     confid_std['live']['hcode'] = result['hcode']
     config_path = '../config_live.json'
     with open(config_path, 'w') as f:
         json.dump(confid_std, f, indent=2)
+    print(f"+ sauvegarde en {(time.time() - start_time):.0f}")
+
+if __name__ == "__main__":
+    optimize_start()

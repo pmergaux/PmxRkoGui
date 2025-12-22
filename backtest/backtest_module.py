@@ -9,7 +9,7 @@ from train.trainer import (lstm_train_simple, lstm_train_ultra, lstm_predict_ult
                            lstm_train_model, lstm_predict_model, tft_train_predict_fast,
                            tft_train_predict, tft_to_proba, nbeats_train_predict,
                            mlp_train, mlp_predict,
-                           lgbm_train, lgbm_predit, xgb_train, xgb_predict)
+                           lgbm_train, lgbm_predict, xgb_train, xgb_predict)
 
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'   # ← à mettre TOUT EN HAUT du fichier
 # 2. Optionnel mais recommandé : limite la verbosité de TF
@@ -202,6 +202,7 @@ def run_backtest(config, save_artifacts=False):
         units = config.get('lstm_units', 48)
         thresh_buy = config.get('threshold_buy', 0.6)
         thresh_sell = config.get('threshold_sell', 0.4)
+        hcode = "default_hcode"
         if need_nn:
             target_type = config.get('target_type', 'direction')
             df_renko = prepare_target_column(df_renko, target_cols[0], target_type)
@@ -220,8 +221,7 @@ def run_backtest(config, save_artifacts=False):
             if len(df_renko) < seq_len*4:
                 print("pas assez de renko", len(df_renko))
                 return score, {}
-            config_std['target']['target_col'] = target_cols[0]     # on se limite à une seule cible
-            hcode = "default_hcode"
+            config_std['target']['target_col'] = [target_cols[0]]     # on se limite à une seule cible
             try:
                 hcode = config_to_hash(prepare_to_hashcode(config_std))
                 # print("hcode", hcode)
@@ -284,10 +284,23 @@ def run_backtest(config, save_artifacts=False):
                                       dropout=mlp['mlp_dropout'], lr=mlp['mlp_lr'],
                                       batch_size=mlp['mlp_batch_size'], patience=mlp['mlp_patience'])
                 elif 'LGBM' == vs:
+                    try:
+                        lgbm = config_std['lgbm']
+                    except BaseException as e:
+                        print("No LGBM")
+                        break
                     model = lgbm_train(np.asarray(X_train, dtype=np.float32), np.asarray(y_train, dtype=np.float32),
-                                       np.asarray(X_val, dtype=np.float32), np.asarray(y_val, dtype=np.float32))
+                                       np.asarray(X_val, dtype=np.float32), np.asarray(y_val, dtype=np.float32),
+                                       learning_rate=lgbm['lgbm_learning_rate'], n_estimators=lgbm['lgbm_n_estimators'],
+                                       num_leaves=lgbm['lgbm_num_leaves'],feature_fraction=lgbm['lgbm_feature_fraction'],
+                                       min_child_samples=lgbm['lgbm_min_child_samples'],early_stop_rounds=lgbm['lgbm_early_stop_rounds'],
+                                       bagging_fraction=lgbm['lgbm_bagging_fraction'])
                 elif 'XGB' == vs:
-                    model = xgb_train(X_train, y_train, X_val, y_val)
+                    xgb = config_std['xgb']
+                    model = xgb_train(X_train, y_train, X_val, y_val, learning_rate=xgb['xgb_learning_rate'],
+                                      max_depth=xgb['xgb_max_depth'],n_estimators=xgb['xgb_n_estimators'],
+                                      subsample=xgb['xgb_subsample'], colsample_bytree=xgb['xgb_colsample_bytree'],
+                                      early_stop_rounds=xgb['xgb_early_stop_rounds'])
 
                 # --- Prediction & Saving ---
                 if model:
@@ -312,7 +325,7 @@ def run_backtest(config, save_artifacts=False):
                     # Prediction logic
                     try:
                         if 'LGBM' in VERSION:
-                            proba = lgbm_predit(model, X_test)
+                            proba = lgbm_predict(model, X_test)
                         elif 'XGB' in VERSION:
                             proba = xgb_predict(model, X_test)
                         elif 'LSTM' in VERSION:
