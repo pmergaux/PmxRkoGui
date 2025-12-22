@@ -53,6 +53,37 @@ def config_to_features(config:dict):
             total_cols.append(col)
     return features_cols, target_cols, total_cols
 
+# ====================== TARGETS SIMPLES ======================
+def prepare_target_column(df, target_col, target_type, horizon=1):
+    """
+    Prépare la colonne cible en fonction du type demandé.
+    Retourne le DataFrame avec une nouvelle colonne 'target'.
+    """
+    df = df.copy()
+    if target_type == 'direction':
+        # On prédit le signe du changement futur
+        # Le futur est défini par un décalage négatif
+        future_change = df[target_col].diff(periods=-1)
+        # On crée la cible : 1 si le futur est positif (le prix va monter), 0 sinon
+        df['target'] = (future_change > 0).astype(int)
+    elif target_type == 'value':
+        # Exemple pour un problème de régression : on prédit la valeur future
+        df['target'] = df[target_col].shift(-1)
+    elif target_type == 'return':
+        df['target'] = df[target_col].pct_change(horizon).shift(-horizon)
+    # ... (vous pouvez ajouter d'autres types de cibles ici) ...
+    # On supprime les dernières lignes où la cible est NaN car inconnue
+    df = df.dropna(subset=['target']).reset_index(drop=True)
+    return df
+
+def prepare_targets_simple(df, horizon=5):
+    df = df.copy()
+    df['target'] = df['close'].pct_change(horizon).shift(-horizon)
+    df['target'] = np.sign(df['target'])
+    df['target'] = df['target'].replace(-1, 0)  # pour n'avoir que 0 ou 1
+    df = df.dropna(subset=['target']).reset_index(drop=True)
+    return df
+
 # =============================================
 # 1. SCALING COLS (features or targets seulement)
 # =============================================

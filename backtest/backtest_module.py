@@ -34,7 +34,7 @@ from utils.renko_utils import tick21renko
 from utils.utils import reload_ticks_from_pickle
 from utils.model_utils import (scale_cols_only, assemble_with_targets,
                                create_sequences_numba,
-                               config_to_features, nn_servers)
+                               config_to_features, nn_servers, prepare_target_column, prepare_targets_simple)
 from decision.candle_decision import add_indicators, choix_features
 from decision.trading_decision import trading_decision  # ← ton add_indicators Numba parfait
 
@@ -42,37 +42,6 @@ from decision.trading_decision import trading_decision  # ← ton add_indicators
 # =========================================================================
 # --- utilities
 # =========================================================================
-# ====================== TARGETS SIMPLES ======================
-def prepare_target_column(df, target_col, target_type, horizon=1):
-    """
-    Prépare la colonne cible en fonction du type demandé.
-    Retourne le DataFrame avec une nouvelle colonne 'target'.
-    """
-    df = df.copy()
-    if target_type == 'direction':
-        # On prédit le signe du changement futur
-        # Le futur est défini par un décalage négatif
-        future_change = df[target_col].diff(periods=-1)
-        # On crée la cible : 1 si le futur est positif (le prix va monter), 0 sinon
-        df['target'] = (future_change > 0).astype(int)
-    elif target_type == 'value':
-        # Exemple pour un problème de régression : on prédit la valeur future
-        df['target'] = df[target_col].shift(-1)
-    elif target_type == 'return':
-        df['target'] = df[target_col].pct_change(horizon).shift(-horizon)
-    # ... (vous pouvez ajouter d'autres types de cibles ici) ...
-    # On supprime les dernières lignes où la cible est NaN car inconnue
-    df = df.dropna(subset=['target']).reset_index(drop=True)
-    return df
-
-def prepare_targets_simple(df, horizon=5):
-    df = df.copy()
-    df['target'] = df['close'].pct_change(horizon).shift(-horizon)
-    df['target'] = np.sign(df['target'])
-    df['target'] = df['target'].replace(-1, 0)  # pour n'avoir que 0 ou 1
-    df = df.dropna(subset=['target']).reset_index(drop=True)
-    return df
-
 def decision(df, config):
     print("decision")
     features = config.get("features", None)

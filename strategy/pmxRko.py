@@ -90,7 +90,7 @@ class PmxRkoStrategy(Strategy):
             #target_type = self.cfg['target']['target_type']
             df = self.display[-256:].copy()
             X_test = load_and_transform(self.scaler, df[features_cols])
-            y_test = df[target_cols].to_numpy(dtype=np.float32)
+            y_test = df[target_cols].to_numpy(dtype=np.float32)    # qu'importe le target_cols ?
             test_r = np.hstack([X_test, y_test])
             X_test_seq, _ = create_sequences_numba(test_r, self.cfg['lstm']['lstm_seq_len'], len(features_cols))
             print("len Xseq", len(X_test_seq) if X_test_seq is not None else 'None', self.cfg['lstm']['lstm_seq_len'])
