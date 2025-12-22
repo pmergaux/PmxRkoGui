@@ -115,22 +115,25 @@ def compute_indicators_pure_numba(
 
 
 def add_indicators(df, param):
-    df = df.copy()
-    df = df.reset_index(drop=True)
-    # Conversion une fois pour toutes
-    close_np = df['close'].to_numpy(dtype=np.float64)
-    high_np = df['high'].to_numpy(dtype=np.float64)
-    low_np = df['low'].to_numpy(dtype=np.float64)
-    df['time'] = pd.to_datetime(df['time'])
-    ts_np = df['time'].astype('int64').values // 1_000_000_000
-    ema_period = param.get("ema_period", 9)
-    rsi_period = param.get('rsi_period', 14)
-    macd = param.get('macd', {'macd_fast':12, 'macd_slow':26, "macd_signal":9})
-    macd_fast = macd['macd_fast']
-    macd_slow = macd['macd_slow']
-    macd_signal = macd['macd_signal']
-    cci_period = param.get('cci_period', 20)
-
+    try:
+        df = df.copy()
+        df = df.reset_index(drop=True)
+        # Conversion une fois pour toutes
+        close_np = df['close'].to_numpy(dtype=np.float64)
+        high_np = df['high'].to_numpy(dtype=np.float64)
+        low_np = df['low'].to_numpy(dtype=np.float64)
+        df['time'] = pd.to_datetime(df['time'])
+        ts_np = df['time'].astype('int64').values // 1_000_000_000
+        ema_period = param.get("ema_period", 9)
+        rsi_period = param.get('rsi_period', 14)
+        macd = param.get('macd', {'macd_fast':12, 'macd_slow':26, "macd_signal":9})
+        macd_fast = macd['macd_fast']
+        macd_slow = macd['macd_slow']
+        macd_signal = macd['macd_signal']
+        cci_period = param.get('cci_period', 20)
+    except BaseException as e:
+        print("err add indic 1", e)
+        return None
     # Appel magique (9 variables dépaquetées pour correspondre à la sortie Numba)
     rsi, ema, macd_line, macd_signal, macd_hist, cci, willr, time_vol, vol = compute_indicators_pure_numba(
         close_np, high_np, low_np, ts_np, ema_period, rsi_period, macd_fast, macd_slow, macd_signal, cci_period

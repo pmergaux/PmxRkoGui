@@ -37,6 +37,7 @@ SELL_CONT = -2
 SELL_STOP = -3
 CLOSE = 5
 FCLOSE = 6
+NCLOSE = 7
 NONE = 0
 UP = 1
 DOWN = -1
@@ -317,3 +318,27 @@ def clean_numpy_types(data):
         return data.tolist()
     return data
 
+
+def get_extension(path: str) -> str:
+    """
+    Retourne l'extension d'un fichier (en minuscules, avec le point).
+    Exemples :
+        "../xxx/fich.txt"      → ".txt"
+        "./data/model.keras"   → ".keras"
+        "fichier"              → ""
+        "archive.tar.gz"       → ".gz"   (prend la dernière extension)
+        "/home/user/file."     → "."
+
+    Parameters
+    ----------
+    path : str
+        Chemin complet ou relatif du fichier
+
+    Returns
+    -------
+    str
+        L'extension (avec le point) ou chaîne vide si aucune
+    """
+    # os.path.splitext sépare juste avant le dernier point
+    _, ext = os.path.splitext(path)
+    return ext.lower()  # on retourne en minuscules pour comparaison facile

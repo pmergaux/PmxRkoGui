@@ -5,9 +5,13 @@ import joblib
 import numpy as np
 import pandas as pd
 
+from train.trainer import lgbm_predit, xgb_predict, lstm_predict_model, mlp_predict
+from utils.model_utils import create_sequences_numba
+from utils.scaler_utils import load_and_transform
 from .base import Strategy
 from utils.renko_utils import tick21renko
 from decision.candle_decision import calculate_indicators, choix_features, calculate_japonais
+from decision.trading_decision import trading_decision
 from utils.utils import NONE, BUY, SELL, CLOSE, FCLOSE
 from datetime import datetime, timedelta, time
 from mt5linux import MetaTrader5
@@ -30,7 +34,7 @@ class PmxRkoStrategy(Strategy):
         self.model = None
         self.scaler = None
 
-    def decision_ai(self, trace=False):
+    def calcul_ai(self, trace=False):
         test_p = self.bricks[:-1]
         lstm = self.cfg["lstm"]
         target = self.cfg["target"]
@@ -79,6 +83,43 @@ class PmxRkoStrategy(Strategy):
             print("signal lstm\n", test_p['signal'].tail(-3))
         return test_p['signal'].iloc[-1]
 
+    def decision_ai(self, trace=False):
+        try:
+            features_cols = self.cfg['features']
+            print("feat", features_cols)
+            target_cols = self.cfg['target']['target_col']
+            print("tg", target_cols)
+            if not isinstance(target_cols, list):
+                target_cols = [target_cols]
+            #target_type = self.cfg['target']['target_type']
+            df = self.display[-256:].copy()
+            try:
+                X_test = load_and_transform(self.scaler, df[features_cols])
+            except BaseException as e:
+                print("err create Xtest", e)
+            print("len Xtest", len(X_test) if X_test is not None else 'None')
+            y_test = df[target_cols].to_numpy(dtype=np.float32)
+            test_r = np.hstack([X_test, y_test])
+            print("len Rtest", len(test_r) if test_r is not None else 'None')
+            X_test_seq, _ = create_sequences_numba(test_r, self.cfg['lstm']['lstm_seq_len'], len(features_cols))
+            print("len Xseq", len(X_test_seq) if X_test_seq is not None else 'None', self.cfg['lstm']['lstm_seq_len'])
+            if 'LGBM' in self.version:
+                proba = lgbm_predit(self.model, X_test)
+            elif 'XGB' in self.version:
+                proba = xgb_predict(self.model, X_test)
+            elif 'LSTM' in self.version:
+                proba = lstm_predict_model(self.model, X_test_seq)
+            elif 'MLP' in self.version:
+                proba = mlp_predict(self.model, X_test)
+            else:
+                proba = self.model.predict(X_test_seq, verbose=0).flatten()
+        except BaseException as e:
+            print(f"err prediction {self.version} ", e)
+            return None
+        if trace:
+            print("pba", proba[-3:])
+        return proba[-3:]
+
     def decision(self, trace=False):
         try:
             self.display = calculate_indicators(self.bricks, self.cfg)
@@ -86,9 +127,6 @@ class PmxRkoStrategy(Strategy):
         except Exception as e:
             print(f"decision err {e}")
         jp = calculate_japonais(self.df, self.cfg)
-        line = self.display[['MACD_line']].tail(3)
-        sign = self.display[['MACD_signal']].tail(3)
-        diff = self.display[['MACD_hist']].tail(3)
         dc = self.display[['direction']].tail(3)
         if not 'sigc' in self.display.columns:
             self.display['sigc'] = NONE
@@ -96,17 +134,7 @@ class PmxRkoStrategy(Strategy):
         if not 'sigo' in self.display.columns:
             self.display['sigo'] = NONE
         so = self.display[['sigo']].tail(3)
-        dd = pd.concat([dc, sc, so, line, sign, diff], axis=1)
-        if not 'sigc' in jp.columns:
-            jp['sigc'] = NONE
-            jp['sigo'] = NONE
-            jp['direction'] = NONE
-        open_buy = ((jp['direction'].iloc[-1] == 1) & (self.ticks['bid'].iloc[-1] < jp['bb_mavg'].iloc[-1]))
-        open_sell = ((jp['direction'].iloc[-1] == -1) & (self.ticks['ask'].iloc[-1] > jp['bb_mavg'].iloc[-1]))
-        jp.loc[jp.index[-1],'sigo'] = 1 if open_buy else -1 if open_sell else 0
-        close_sell = (self.ticks['bid'].iloc[-1] < jp['bb_lband'].iloc[-1])
-        close_buy = (self.ticks['ask'].iloc[-1] > jp['bb_hband'].iloc[-1])
-        jp.loc[jp.index[-1], 'sigc'] = 1 if close_sell else -1 if close_buy else 0
+        dd = pd.concat([dc, sc, so], axis=1)
         djd = jp[['direction']].tail(3)
         djc = jp[['sigc']].tail(3)
         djo = jp[['sigo']].tail(3)
@@ -133,7 +161,7 @@ class PmxRkoStrategy(Strategy):
             return
         try:
             if self.bricks is None:
-                self.decal = self.live.get('init_decal', 1000)
+                self.live['init_decal'] = 1000
                 self.debut = True
                 Strategy.run(self)
                 try:
@@ -205,7 +233,7 @@ class PmxRkoStrategy(Strategy):
                 print(f"{datetime.now()} {self.live['name']} changement renko {self.renko_time} "
                       f"ex {'sell' if self.bricks['open_renko'].iloc[-2] > self.bricks['close_renko'].iloc[-2] else 'buy'}")
             dd, dj = self.decision(tdelta==0 and not self.fopen)
-            #dai = self.decision_ai(True)
+            dai = self.decision_ai(True)
             try:
                 self.parent.update_display({"df": self.display.tail(13), "current_bid": self.ticks['bid'].iloc[-1], "strategy": self})
             except Exception as e:
@@ -213,49 +241,31 @@ class PmxRkoStrategy(Strategy):
             if (tdelta != 0 or self.count_time is not None) and lp == 0:
                 self.count_time = None   # cas d'un arret externe au prograùmùe
             ls = NONE
-            sdc, ssc, sso = dd['direction'].iloc[-2], dd['sigc'].iloc[-2], dd['sigo'].iloc[-2]
-            pdc, psc, pso = dd['direction'].iloc[-3], dd['sigc'].iloc[-3], dd['sigo'].iloc[-3]
-            ss = NONE
-            djd, djc, djo = dj['direction'].iloc[-1], dj['sigc'].iloc[-1], dj['sigo'].iloc[-1]
             if lp > 0:
                 ls = BUY if self.positions[0].type == MetaTrader5.POSITION_TYPE_BUY else SELL
                 if not self.TimeisOpen():
                     self.close_one(ls, CLOSE, self.positions[0], True, "time")
                     return
-                # inversion sens ou tp ou sl ou risk etc...
-                ss, msg = self.to_be_closed(ls, self.positions[0],False)
-                if ss == NONE:
-                    msg = 'norm'
-                    if tdelta > 3600:
-                        #ss = FCLOSE   # a revoir
-                        msg = 'tOut'
-                    if (djc == BUY and ls == BUY) or (djc == SELL and ls == SELL):
-                        ss = FCLOSE
-                        msg = 'hout'
-                if ssc == 4 or ss == FCLOSE or (ls != sso and sso != NONE):
-                    sc = CLOSE
-                    if ss != NONE:
-                        sc = ss
-                    self.close_one(ls, sc, self.positions[0], True, msg)
-                    self.count_time = None
-                self.positions = select_positions_magic(self.cl.get_positions_symbol(self.live['symbol']), self.live['magic'])
-                lp = len(self.positions)
+            signal = trading_decision(ls, self.positions[0].price_open, self.positions[0].price_current,
+                                      dd, None, dai, self.ssl, self.stp,
+                                      self._param['threshold_buy'], self._param['threshold_sell'])
             self.fopen = False
-            if not self.TimeisOpen():                 return 0
-            if lp == 0 and sso != NONE and (ssc != psc or (psc == ssc and ssc != 4)) and (ss != FCLOSE or (ss == FCLOSE and ls != sso)):
-                if ((sso == BUY) or (sso == SELL)) and sso == djo:
-                    print(f"{datetime.now()} {self.live['name']} sensO={sso}")
-                    self.stp = self.live['tp']
-                    self.live['tp'] = 0
-                    self.ssl = self.live['sl']
-                    self.live['sl'] = 0
-                    self.open(sso, 0)
-                    self.live['tp'] = self.stp
-                    self.live['sl'] = self.ssl
-                    self.futurClosed = NONE
-                    self.count_time = self.ticks.index[-1]
-                else:
-                    self.fopen = True   # revenir
+            if not self.TimeisOpen():                 return
+            if signal == BUY or signal == SELL:
+                self.stp = self.live['tp']
+                self.live['tp'] = 0
+                self.ssl = self.live['sl']
+                self.live['sl'] = 0
+                self.open(signal, 0)
+                self.live['tp'] = self.stp
+                self.live['sl'] = self.ssl
+                self.futurClosed = NONE
+                self.count_time = self.ticks.index[-1]
+                return
+            msg = 'norm' if signal == CLOSE else 'sltp' if signal == FCLOSE else ''
+            if signal > 3:
+                self.close_one(ls, signal, self.positions[0], True, msg)
+                self.count_time = None
         except Exception as e:
             print(f"err generale {self.live['name']}: {e}")
 

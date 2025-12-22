@@ -15,7 +15,7 @@ from multiprocessing import Queue
 from optimize.lstm_optimizer import run_optimization
 from optimize.optimization_worker import OptimizationWorker
 from utils.config_utils import indVal, tarVal
-from utils.neural_utils import create_sequences, generate_param_combinations
+from utils.model_utils import generate_param_combinations
 from utils.qwidget_utils import get_widget_from_dict, set_widget_from_dict, set_widget_from_list, get_widget_from_list, \
     qdate2datetime
 from utils.utils import load_ticks, to_number, reload_ticks_from_pickle
@@ -49,12 +49,12 @@ class OptimizationTab(QWidget):
                 "rsi_period": (self.rsi_period, self.opt_rsi_period_list),
                 "rsi_high": (self.rsi_high, self.opt_rsi_high_list),
                 "rsi_low": (self.rsi_low, self.opt_rsi_low_list),
+                "threshold_buy": (self.threshold_buy, self.opt_threshold_buy_list),
+                "threshold_sell": (self.threshold_sell, self.opt_threshold_sell_list),
             },
             "lstm": {
                 "lstm_seq_len": (self.lstm_seq_len, self.opt_lstm_seq_list),
                 "lstm_units": (self.lstm_units, self.opt_lstm_units_list),
-                "lstm_threshold_buy": (self.lstm_threshold_buy, self.opt_threshold_buy_list),
-                "lstm_threshold_sell": (self.lstm_threshold_sell, self.opt_threshold_sell_list),
             },
             "features": [self.feat_1, self.feat_2, self.feat_3, self.feat_4, self.feat_5, self.time_live],
             "target": {

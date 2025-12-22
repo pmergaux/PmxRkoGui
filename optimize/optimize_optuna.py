@@ -1,73 +1,16 @@
-# objective/optuna_objective.py
-from optuna import TrialPruned
-from src.train.trainer import train_model_for_config
-from src.backtest.strategies.lstm_renko_strategy import LSTMRenkoBackStrategy
+import gc
+import json
+import os
+import sys
 
-def optuna_objective(trial, train_df, val_df, test_df):
-    # --- Paramètres ---
-    renko_size = trial.suggest_float("renko_size", 10.0, 50.0)
-    target_column = trial.suggest_categorical("target_column", ["close", "EMA"])
-    target_type = trial.suggest_categorical("target_type", ["direction", "return"])
-    seq_len = trial.suggest_int("seq_len", 20, 100)
-    lstm_units = trial.suggest_int("lstm_units", 50, 200)
-    threshold_buy = trial.suggest_float("threshold_buy", 0.5, 0.8)
-    threshold_sell = trial.suggest_float("threshold_sell", 0.2, 0.5)
-
-    # --- Config ---
-    config = {
-        "renko_size": renko_size,
-        "features": ["EMA", "RSI", "MACD_hist", "time_vol", target_column],
-        "target": {"column": target_column, "type": target_type, "include_in_features": True},
-        "lstm": {"seq_len": seq_len, "units": lstm_units},
-        "threshold_buy": threshold_buy,
-        "threshold_sell": threshold_sell
-    }
-
-    # --- Entraîner ---
-    model_path, scaler_path = train_model_for_config(config, train_df, val_df)
-    if not model_path:
-        raise TrialPruned()
-
-    # --- Backtest ---
-    param = {**config, "model_path": model_path, "scaler_path": scaler_path}
-    strategy = LSTMRenkoBackStrategy(param, test_df)
-    _, results = strategy.exec()
-
-    # --- Pruning : si peu de trades ---
-    if results["total_trades"] < 10:
-        raise TrialPruned()
-
-    # --- Score ---
-    score = results["total_profit"] + 100 * results["win_rate"]
-    trial.report(score, step=results["total_trades"])
-
-    return score
-
-## **2. LANCEMENT — `optuna_run.py`**
-
-# optimize/optuna_run.py
-import optuna
+import numpy as np
 import pandas as pd
+import optuna
+from joblib import Parallel, delayed
 
-df = pd.read_pickle("data/ETHUSD.pkl")
-train_df = df[:'2024-01-01']
-val_df = df['2024-01-01':'2024-06-01']
-test_df = df['2024-06-01':]
-
-study = optuna.create_study(
-    direction="maximize",
-    pruner=optuna.pruners.MedianPruner()
-)
-
-study.optimize(
-    lambda trial: optuna_objective(trial, train_df, val_df, test_df),
-    n_trials=100,
-    timeout=None
-)
-
-print("MEILLEURE CONFIG OPTUNA :")
-print(study.best_params)
-print(f"Score : {study.best_value}")
+from backtest.backtest_module import run_backtest
+from utils.config_utils import to_config_std
+from utils.utils import clean_numpy_types
 
 ## **3. DASHBOARD — `optuna-dashboard`**
 """
@@ -77,3 +20,269 @@ optuna-dashboard sqlite:///optuna.db
 
 → Ouvre `http://localhost:8080` → **visualisation en temps réel**
 """
+# =========================================================================
+RENKO_CACHE_DIR = "../data/renko_cache"
+
+# ======================================================================
+# GESTION DU CACHE ET DES RÉSULTATS
+# ======================================================================
+# On utilise des variables globales pour le cache et pour stocker les résultats
+# C'est une approche simple et efficace pour un script mono-processus.
+renko_cache_global = {}
+last_renko_size = None
+all_trials_results = []  # Pour stocker les résultats détaillés de chaque essai
+
+
+def evaluate_config_for_optuna(config):
+    """
+    Fonction qui gère le cache, lance le backtest et stocke les résultats.
+    """
+    global renko_cache_global, last_renko_size, all_trials_results
+
+    try:
+        current_renko_size = config['renko_size']
+        # Logique de vidage du cache si la taille change
+        if current_renko_size != last_renko_size:
+            print(f"Changement de taille de {last_renko_size} à {current_renko_size}. Vidage du cache.")
+            renko_cache_global.clear()
+            last_renko_size = current_renko_size
+        # Logique de chargement depuis le cache
+        if current_renko_size in renko_cache_global:
+            df_renko_original = renko_cache_global[current_renko_size]
+        else:
+            print(f"Cache MISS pour renko_size={current_renko_size}. Chargement...")
+            file_path = os.path.join(RENKO_CACHE_DIR, f"renko_{current_renko_size:.2f}.pkl")
+            if not os.path.exists(file_path):
+                raise FileNotFoundError(f"Fichier Renko manquant: {file_path}")
+
+            df_renko_original = pd.read_pickle(file_path)
+            renko_cache_global[current_renko_size] = df_renko_original
+        # On travaille sur une copie
+        config['data'] = df_renko_original.copy()
+        # On exécute le backtest qui retourne (score, result_dict)
+        score, result_dict = run_backtest(config)
+        # On stocke les résultats détaillés pour analyse ultérieure
+        full_result = {
+            'score': score,
+            'params': config,
+            'details': result_dict
+        }
+        all_trials_results.append(full_result)
+        # On supprime la donnée pour ne pas la garder en mémoire inutilement
+        return float(score)
+
+    except Exception as e:
+        print(f"ERREUR sur config {config.get('renko_size')}: {e}")
+        return -999.0
+    finally:
+        gc.collect()
+
+# 1. On définit une fonction "objectif" pour Optuna
+def objective(trial):
+    """
+    Cette fonction est appelée par Optuna à chaque essai.
+    'trial' est un objet spécial qui suggère des paramètres.
+    """
+    # On définit les plages de recherche pour chaque paramètre
+    config = {
+        'renko_size': trial.suggest_float('renko_size', 30.0, 38.0),
+        'ema_period': trial.suggest_int('ema_period', 8, 15),
+        'rsi_period': trial.suggest_int('rsi_period', 10, 20),
+        'target_col': trial.suggest_categorical('target_col', ['close', 'EMA']),
+        # ... etc. pour tous vos autres paramètres
+        'threshold_buy': trial.suggest_float('threshold_buy', 0.55, 0.8),
+        'threshold_sell': trial.suggest_float('threshold_sell', 0.2, 0.45),
+        # Exemple avec un choix de modèle
+        'VERSION': [trial.suggest_categorical('VERSION', ['LGBM', 'XGB'])],
+        # Exemple avec un type de cible à optimiser
+        #'target_type': trial.suggest_categorical('target_type', ['direction', 'pct_change']),
+
+        # Paramètres fixes
+        # 'target_col': 'close',
+        'target_type': 'direction',
+        'features_base': ["EMA", "RSI", "MACD_hist", "close", "lstm"],
+        'params_base': {"renko_size": 17.1, "ema_period": 9, "rsi_period": 14, "rsi_high": 70, "rsi_low": 30,
+                        "macd": {"macd_fast": 12, "macd_slow": 26, "macd_signal": 9}},
+        # 'VERSION': ['DECISION'],
+        # ...
+    }
+
+    # On lance l'évaluation comme avant
+    # Note : Cette version simple est mono-processus.
+    # Optuna peut être parallélisé, mais commençons simplement.
+    score, result = evaluate_config_for_optuna(config)
+
+    # On retourne le score. Optuna cherchera à maximiser cette valeur.
+    return score
+
+
+# ======================================================================
+# FONCTION D'ÉVALUATION POUR UN SEUL ESSAI (EXÉCUTÉE PAR CHAQUE WORKER)
+# ======================================================================
+def evaluate_trial(config):
+    """
+    Évalue une seule configuration. C'est cette fonction qui sera parallélisée.
+    Elle a son propre cache interne (qui sera détruit avec le processus).
+    """
+    # Le cache est local à cette exécution
+    #renko_cache_local = {}
+    try:
+        current_renko_size = config['renko_size']
+        # Pas besoin de vider le cache, car il est recréé à chaque fois
+        # que Joblib démarre un nouveau processus pour cette tâche.
+        # Logique de chargement depuis le cache (ici, il sera toujours vide)
+        # ou depuis le disque.
+        file_path = os.path.join(RENKO_CACHE_DIR, f"renko_{current_renko_size:.1f}0.pkl")
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"Fichier Renko manquant: {file_path}")
+        df_renko_original = pd.read_pickle(file_path)
+        config['data'] = df_renko_original.copy()
+        score, result_dict = run_backtest(config)
+        # On retourne tout pour l'analyse finale
+        return {
+            'score': float(score),
+            'params': config,
+            'details': result_dict
+        }
+    except Exception as e:
+        print(f"ERREUR sur config {config.get('renko_size')}: {e}")
+        return {
+            'score': -999.0,
+            'params': config,
+            'details': {'error': str(e)}
+        }
+    finally:
+        gc.collect()
+
+# ======================================================================
+# SCRIPT PRINCIPAL
+# ======================================================================
+if __name__ == "__main__":
+    if not os.path.exists(RENKO_CACHE_DIR):
+        print(f"ERREUR: Le dossier '{RENKO_CACHE_DIR}' n'existe pas.")
+        exit()
+    reprise = False
+    if not reprise:
+        # 1. Création de l'étude Optuna
+        study = optuna.create_study(direction='maximize')
+        # 2. Définition du nombre d'essais et de workers
+        n_trials = 500
+        n_jobs = 10  # Nombre de processus à utiliser en parallèle
+        print(f"Démarrage de l'optimisation Optuna pour {n_trials} essais sur {n_jobs} coeurs...")
+        # 3. Boucle d'optimisation manuelle pour la parallélisation
+        total_results = []
+        for i in range(n_trials // n_jobs):
+            # On génère un "batch" de configurations suggérées par Optuna
+            trials = [study.ask() for _ in range(n_jobs)]
+            configs = []
+            for trial in trials:
+                config = {
+                    'renko_size': trial.suggest_float('renko_size', 20.0, 38.0, step=0.1),
+                    'ema_period': trial.suggest_int('ema_period', 8, 15),
+                    'rsi_period': trial.suggest_int('rsi_period', 10, 20),
+                    'target_col': trial.suggest_categorical('target_col', ['close', 'EMA']),
+                    'threshold_buy': trial.suggest_float('threshold_buy', 0.55, 0.8, step=0.05),
+                    'threshold_sell': trial.suggest_float('threshold_sell', 0.2, 0.45, step=0.05),
+                    'lstm_seq_len': trial.suggest_int('lstm_seq_len', 24, 144, step=24),
+                    'lstm_units': trial.suggest_int('lstm_units', 48, 192, step=48),
+                    'lgbm_learning_rate': [0.01, 0.03, 0.05],
+                    'lgbm_num_leaves': [31, 63, 127],
+                    'lgbm_feature_fraction': [0.7, 0.8, 0.9],
+                    'lgbm_bagging_fraction': [0.7, 0.8, 0.9],
+                    'lgbm_min_child_samples': [20, 50],
+                    'lgbm_early_stop_rounds': [20, 50],
+                    'mlp_unit1': trial.suggest_int('mlp_unit1', 128, 256, step=128),
+                    'mlp_unit2': 0,
+                    'mlp_dropout': trial.suggest_float('mlp_dropout', 0.2, 0.5, step=0.1),
+                    'xgb_learning_rate': [0.01, 0.03, 0.05],
+                    'xgb_max_depth': [4, 6, 8],
+                    'xgb_subsample': [0.7, 0.8, 0.9],
+                    'xgb_colsample_bytree': [0.7, 0.8, 0.9],
+                    'xgb_early_stop_rounds': 50,
+                    'features': ['EMA', 'RSI', 'MACD_hist', 'close'],
+                    'VERSION': [trial.suggest_categorical('VERSION', ['SIMPLE', 'ULTRA', 'MLP', 'LGBM', 'XGB'])],
+                    'target_type': 'direction',
+                    'symbol':'ETHUSD',
+                }
+                configs.append(config)
+
+            # On exécute le batch de tâches en parallèle
+            print(f"\nLancement du batch {i + 1}/{n_trials // n_jobs}...")
+            results = Parallel(n_jobs=n_jobs)(delayed(evaluate_trial)(cfg) for cfg in configs)
+
+            # On informe Optuna des résultats obtenus pour ce batch
+            for trial, result in zip(trials, results):
+                # 'tell' prend l'essai et le score, et met à jour l'étude
+                study.tell(trial, result['score'])
+
+            # On peut sauvegarder les résultats détaillés au fur et à mesure
+            with open("all_trials_results.json", "a") as f:
+                for res in results:
+                    # Nettoyage des types NumPy avant sauvegarde
+                    f.write(json.dumps(clean_numpy_types(res)) + "\n")
+                    total_results.append([res['score'], res])
+
+        # --- Affichage et sauvegarde finale ---
+        print("\nOptimisation terminée !")
+        print(f"Meilleur score : {study.best_value}")
+        print(f"Meilleurs paramètres : {study.best_params}")
+
+        best_params = study.best_params
+        with open("best_params_optuna.json", "w") as f:
+            json.dump(best_params, f, indent=2)
+        tops = sorted(total_results, key=lambda x: x[0], reverse=True)
+        for i in range(5):
+            print(tops[i])
+
+        # Créer la configuration complète avec les meilleurs paramètres
+        final_config = {
+            'renko_size': best_params['renko_size'],
+            'ema_period': best_params['ema_period'],
+            'rsi_period': best_params['rsi_period'],
+            'target_col': best_params['target_col'],
+            'threshold_buy': best_params['threshold_buy'],
+            'threshold_sell': best_params['threshold_sell'],
+            'lstm_seq_len': best_params['lstm_seq_len'],
+            'lstm_units': best_params['lstm_units'],
+            'mlp_unit1': best_params['mlp_unit1'],
+            'mlp_unit2': 0,
+            'mlp_dropout': best_params['mlp_dropout'],
+            'VERSION': [best_params['VERSION']],
+            'target_type': 'direction',
+            'features_base': ["EMA", "RSI", "MACD_hist", "close"],
+        }
+    else:
+        final_config = {
+            'renko_size': 35.1,
+            'ema_period': 13,
+            'rsi_period': 15,
+            'target_col': 'close',
+            'threshold_buy': 0.6,
+            'threshold_sell': 0.35,
+            'seq_len': 53,
+            'units': 106,
+            'VERSION': ['ULTRA'],
+            'target_type': 'direction',
+            'features_base': ["EMA", "RSI", "MACD_hist", "close"],
+            'params_base': {"renko_size": 17.1, "ema_period": 9, "rsi_period": 14, "rsi_high": 70, "rsi_low": 30,
+                            "macd": {"macd_fast": 12, "macd_slow": 26, "macd_signal": 9}},
+        }
+    # Charger les données renko correspondantes
+    renko_size = final_config['renko_size']
+    file_path = os.path.join(RENKO_CACHE_DIR, f"renko_{renko_size:.1f}0.pkl")
+    if os.path.exists(file_path):
+        df_renko = pd.read_pickle(file_path)
+        # Appeler run_backtest avec save_artifacts=True
+        final_config['data'] = df_renko.copy() # Ajouter les données à la config pour run_backtest
+        print("\nSauvegarde du modèle et des scalers optimaux...")
+        score, result = run_backtest(final_config, save_artifacts=True)
+        print("Sauvegarde terminée.")
+    else:
+        print(f"Fichier Renko manquant pour la meilleure configuration: {file_path}")
+        sys.exit(2)
+
+    confid_std = to_config_std(final_config)
+    confid_std['live']['hcode'] = result['hcode']
+    config_path = '../config_live.json'
+    with open(config_path, 'w') as f:
+        json.dump(confid_std, f, indent=2)

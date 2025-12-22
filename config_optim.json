@@ -30,6 +30,20 @@
             "source": "14"
         }
     },
+    "threshold_buy": {
+        "values": [
+            0.6
+        ],
+        "type": "list",
+        "source": "0.6"
+    },
+    "threshold_sell": {
+        "values": [
+            0.4
+        ],
+        "type": "list",
+        "source": "0.4"
+    },
     "lstm": {
         "lstm_seq_len": {
             "values": [
@@ -51,20 +65,6 @@
             ],
             "type": "range",
             "source": "50-100-10"
-        },
-        "lstm_threshold_buy": {
-            "values": [
-                0.6
-            ],
-            "type": "list",
-            "source": "0.6"
-        },
-        "lstm_threshold_sell": {
-            "values": [
-                0.4
-            ],
-            "type": "list",
-            "source": "0.4"
         }
     },
     "features": [

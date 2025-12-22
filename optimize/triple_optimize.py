@@ -27,7 +27,7 @@ VERSIONS = ['SIMPLE', 'ULTRA', 'LSTM', 'TRIPLE']
 from utils.config_utils import config_to_hash, prepare_to_hashcode
 from utils.renko_utils import tick21renko
 from utils.utils import reload_ticks_from_pickle
-from utils.neural_utils import scale_features_only, assemble_with_targets, create_sequences_numba, config_to_features, \
+from utils.model_utils import scale_features_only, assemble_with_targets, create_sequences_numba, config_to_features, \
     nn_servers
 from decision.candle_decision import add_indicators, choix_features  # ← ton add_indicators Numba parfait
 

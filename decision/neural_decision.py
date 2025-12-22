@@ -1,7 +1,9 @@
 # decision/neural_decision.py
-from utils.neural_utils import (
-    load_model, load_scaler, prepare_sequence, predict_sequence, get_feature_columns
+
+from utils.model_utils import (
+    load_model, prepare_sequence, predict_sequence, get_feature_columns
 )
+from utils.scaler_utils import load_scaler_std
 from utils.utils import BUY, SELL, NONE  # ← CONSTANTES CENTRALES
 import pandas as pd
 from typing import List, Optional
@@ -17,7 +19,7 @@ class NeuralDecision:
     def __init__(self, param: dict, model_path: str, scaler_path: str):
         self.param = param
         self.model = load_model(model_path)
-        self.scaler = load_scaler(scaler_path)
+        self.scaler = load_scaler_std(scaler_path)
 
     def predict(self, df: pd.DataFrame) -> Optional[int]:
         """
@@ -46,3 +48,4 @@ class NeuralDecision:
             return SELL     # -1
         else:
             return NONE     # 0
+

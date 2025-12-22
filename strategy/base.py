@@ -1,4 +1,6 @@
 # strategy/base.py
+import os
+import pickle
 import time
 from datetime import datetime, timedelta
 
@@ -8,8 +10,13 @@ from mt5linux import MetaTrader5
 
 from live.connexion import Connexion, select_positions_magic
 from live.periodic_timer import Periodic_Timer_Thread
+from utils.model_utils import load_model
 from utils.rate_utils import ticks2rates, ticks22rates, Tf2Rs
 from utils.utils import timeFrame2num, NONE, BUY, SELL, CLOSE, FCLOSE, connectMt5
+import tensorflow as tf
+from tensorflow import keras
+import lightgbm as lgb
+import xgboost as xgb
 
 spread_dict = {'ETHUSD':250, 'SOLUSD':300}
 VERSION = '0.0.3'
@@ -45,6 +52,12 @@ class Strategy(QThread):
         self.ticket = 0
         self.positions = []
         self.futurClosed = NONE
+        self.version = self.live['version']
+        self.hcode = self.live['hcode']
+        self.model = None
+        self.scaler = None
+        if len(self.version) > 0:
+            self.load_model_scaler()
 
     def initPeriod(self, timeframe):
         unit, num = timeFrame2num(timeframe)
@@ -52,6 +65,14 @@ class Strategy(QThread):
         if unit == 'h': return 3600 * int(num)
         if unit == 'd': return 86400 * int(num)
         return 60
+
+    def load_model_scaler(self):
+        path = f"models/model_{self.hcode}"
+        self.model = load_model(path, self.version[0])
+        path = f"models/scaler_{self.hcode}.pkl"
+        if os.path.exists(path):
+            with open(path, 'rb') as f:
+                self.scaler = pickle.load(f)
 
     def change_param(self):
         period = self.initPeriod(self._param['timeframe'])
@@ -245,7 +266,7 @@ class Strategy(QThread):
         try:
             dn = datetime.now() + timedelta(hours=3)
             if self.tickLast is None:
-                dc = datetime.now() - timedelta(hours=self._param.get('init_decal', 240))
+                dc = datetime.now() - timedelta(hours=self.live.get('init_decal', 240))
                 self.ticks = self.cl.get_ticks_from(self.live['symbol'], dc, dn)
                 if self.ticks is None or len(self.ticks) == 0:
                     return

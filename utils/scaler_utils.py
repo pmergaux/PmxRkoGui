@@ -1,3 +1,5 @@
+import pickle
+
 import numpy as np
 import joblib
 import os
@@ -13,40 +15,52 @@ scaler_data = train_and_save_minmax_scaler(
 new_scaled = load_and_transform(latest_brick[feature_cols].values, "models/scaler_a7f3e9c1.pkl")
 """
 
-scaler_data = None
-
-
 # =============================================
-# 4. SAUVEGARDE SCALER LIVE
+# SCALER LIVE
 # =============================================
-def train_save_live_scaler(data, feature_cols, path):
-    global scaler_data
+def train_fit_transform_scaler(df, cols):
+    data = df[cols].to_numpy(dtype=np.float32)
     arr = np.asarray(data, dtype=np.float32)
     # print("shape train", arr.shape)
     scaler_data = {
         'min': arr.min(axis=0),
         'range': arr.max(axis=0) - arr.min(axis=0) + 1e-12,
-        'feature_cols': feature_cols
+        'cols': cols    # pour usage ulterieur
     }
-    if path is not None:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        joblib.dump(scaler_data, path)
-        # print(f"Live scaler sauvé → {path}")
-    return (arr - scaler_data['min']) / scaler_data['range']
+    return scaler_data, (arr - scaler_data['min']) / scaler_data['range']
 
-def load_and_transform(data: np.ndarray, scaler_path: str):
+def load_and_transform(scaler_data, df):
     """
     Chargement + transform en live → < 2 ms garanti
     """
-    global scaler_data
-    if scaler_data is None:
-        if scaler_path is None:
-            arr = np.asarray(data, dtype=np.float32)
-            scaler_data = {
-                'min': arr.min(axis=0),
-                'range': arr.max(axis=0) - arr.min(axis=0) + 1e-12
-            }
-        else:
-            scaler_data = joblib.load(scaler_path)
+    data = df[scaler_data['cols']].to_numpy(dtype=np.float32)
     arr = np.asarray(data, dtype=np.float32)
     return (arr - scaler_data['min']) / scaler_data['range']
+
+def load_scaler(scaler_path: str):
+    """
+    Charge un scaler (StandardScaler, MinMaxScaler, etc.).
+    """
+    if not os.path.exists(scaler_path):
+        raise FileNotFoundError(f"Scaler non trouvé : {scaler_path}")
+    scaler_data = joblib.load(scaler_path)
+    return scaler_data
+
+def save_scaler(scaler_data, scaler_path: str):
+    os.makedirs(os.path.dirname(scaler_path), exist_ok=True)
+    joblib.dump(scaler_data, scaler_path)
+
+def save_scaler_std(scaler, scaler_path):
+    os.makedirs(os.path.dirname(scaler_path), exist_ok=True)
+    with open(scaler_path, "wb") as f: # "wb" -> Write Binary
+        pickle.dump(scaler, f)
+
+def load_scaler_std(scaler_path):
+    if not os.path.exists(scaler_path):
+        raise FileNotFoundError(f"Scaler non trouvé : {scaler_path}")
+    with open(scaler_path, "rb") as f: # "rb" -> Read Binary
+        scaler = pickle.load(f)
+    return scaler
+
+
+#

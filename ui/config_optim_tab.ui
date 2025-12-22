@@ -161,7 +161,7 @@
          </widget>
         </item>
         <item row="3" column="2">
-         <widget class="QLineEdit" name="lstm_threshold_buy">
+         <widget class="QLineEdit" name="threshold_buy">
           <property name="placeholderText">
            <string>0.5,0.6,0.7</string>
           </property>
@@ -241,7 +241,7 @@
          </widget>
         </item>
         <item row="4" column="2">
-         <widget class="QLineEdit" name="lstm_threshold_sell">
+         <widget class="QLineEdit" name="threshold_sell">
           <property name="placeholderText">
            <string>0.3,0.4,0.5</string>
           </property>

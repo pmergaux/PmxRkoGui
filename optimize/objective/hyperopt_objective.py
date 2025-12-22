@@ -1,8 +1,8 @@
 ## **2. FONCTION OBJECTIF — `hyperopt_objective.py`**
 
 # objective/hyperopt_objective.py
-from src.train.trainer import train_model_for_config
-from src.backtest.strategies.lstm_renko_strategy import LSTMRenkoBackStrategy
+from train.trainer import train_model_for_config
+from backtest.strategies.lstm_renko_strategy import LSTMRenkoBackStrategy
 import numpy as np
 
 def hyperopt_objective(params, train_df, val_df, test_df):

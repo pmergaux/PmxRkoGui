@@ -20,6 +20,8 @@ def reset_all_widget(widgetList):
 # dans les appels de liste les value sont les données mais pas les widgets = il faut un mapping
 def set_widget_from_list(qui, name, wlist):
     i = 0
+    if name == 'version':
+        return
     widgetList = qui.mapping[name]
     reset_all_widget(widgetList)
     widgetName = [widgetList[k].objectName() for k in range(len(widgetList))]

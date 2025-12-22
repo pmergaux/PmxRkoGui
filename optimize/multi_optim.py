@@ -12,15 +12,12 @@ import signal
 import gc
 import time
 
-import psutil
 import numpy as np
 import pandas as pd
 from datetime import datetime
 from itertools import product
-from multiprocessing import shared_memory
-from queue import Empty
+from multiprocessing import Pool, shared_memory
 
-from utils.utils import clean_numpy_types
 from utils.utils import reload_ticks_from_pickle
 
 # ======================================================================
@@ -104,17 +101,63 @@ def cleanup_shared_memory():
     except Exception as e:
         print(f"Erreur lors du nettoyage de la mémoire partagée: {e}")
 
-
 # ======================================================================
 # GESTION DU CACHE RENKO DANS CHAQUE WORKER
 # ======================================================================
+def init_worker():
+    """
+    Initialise chaque worker avec un cache et un tracker de taille Renko.
+    """
+    global worker_cache, last_renko_size
+    worker_cache = {}
+    last_renko_size = 0.0
+    print(f"[Worker {os.getpid()}] Initialisé.")
+
+def evaluate_config_for_pool(config):
+    # On recrée le cache à chaque appel, car on ne sait pas quel worker exécute
+    global worker_cache, last_renko_size
+    try:
+        from backtest.backtest_module import run_backtest
+        start_time = datetime.now()
+        pid = os.getpid()
+        renko_size = config['renko_size']
+        # Si la taille de renko a changé, on vide le cache du worker
+        if renko_size != last_renko_size:
+            print(
+                f"[Worker {pid}] Changement de taille de {last_renko_size} à {renko_size}. Vidage du cache.")
+            worker_cache.clear()
+            last_renko_size = renko_size
+        # On utilise le cache
+        if renko_size in worker_cache:
+            df_renko = worker_cache[renko_size]
+        else:
+            print(f"[Worker {pid}] Cache MISS pour renko_size={renko_size}. Chargement...")
+            file_path = os.path.join(RENKO_CACHE_DIR, f"renko_{renko_size:.2f}.pkl")
+            if not os.path.exists(file_path):
+                raise FileNotFoundError(f"Fichier Renko manquant: {file_path}")
+            df_renko = pd.read_pickle(file_path)
+            worker_cache[renko_size] = df_renko
+        # On travaille sur une copie pour ne pas contaminer le cache
+        df_copy = df_renko.copy()
+        config['data'] = df_copy
+        score, result = run_backtest(config)
+        duration = (datetime.now() - start_time).total_seconds() / 60
+        print(f"[Worker {pid}] FINI en {duration:.1f} min → score = {score:.6f}")
+        return float(score), result, config
+
+    except Exception as e:
+        print(f"[ERREUR] dans evaluate_config pour renko_size={config.get('renko_size')}: {e}")
+        return -999.0, {}, config
+    finally:
+        gc.collect()
+
 
 def evaluate_config_cache(config, renko_cache):
     """
     Utilise un cache pour charger le fichier DataFrame Renko pré-calculé.
     """
     try:
-        from optimize.triple_module import run_backtest
+        from backtest.backtest_module import run_backtest
 
         renko_size = config['renko_size']
 
@@ -131,8 +174,8 @@ def evaluate_config_cache(config, renko_cache):
                 return -999.0, {}
             df_renko = pd.read_pickle(file_path)
             renko_cache[renko_size] = df_renko  # On met en cache pour la prochaine fois
-
-        config['data'] = df_renko
+        df_copy = df_renko.copy()
+        config['data'] = df_copy
         score, result = run_backtest(config)
         return float(score), result
 
@@ -190,7 +233,7 @@ def worker_cache(task_queue: mp.Queue, result_queue: mp.Queue):
 # ======================================================================
 # VARIABLES GLOBALES
 # ======================================================================
-# Chemin fixe du fichier optimisé (on le crée une seule fois)
+# Chemin fixe du fichier bn/,-* optimisé (on le crée une seule fois)
 TICKS_NPY_PATH = "../data/ETHUSD_ticks_optimized.npy"
 RENKO_CACHE_DIR = "../data/renko_cache"
 SAVE_PATH_DIR = "../models/simple_opt"
@@ -245,7 +288,7 @@ def get_ticks_dataframe():
 # ======================================================================
 def evaluate_config_renko(config):
     try:
-        from optimize.triple_module import run_backtest
+        from backtest.backtest_module import run_backtest
         # Construit le chemin vers le fichier .pkl correspondant
         renko_size = config['renko_size']
         file_path = os.path.join(RENKO_CACHE_DIR, f"renko_{renko_size:.2f}.pkl")
@@ -298,7 +341,8 @@ def worker_renko(task_queue: mp.Queue, result_queue: mp.Queue):
         except Exception as e:
             print(f"[Worker {pid}] CRASH sur une tâche : {e}")
             # On met un résultat d'erreur pour ne pas bloquer la boucle principale
-            result_queue.put((-999.0,{}, {"error": str(e)}))
+            result_queue.put((-999.0,{}, {"error"
+                                          "": str(e)}))
 
 # ======================================================================
 # GRID SEARCH (100 % identique à ton fichier actuel)
@@ -327,7 +371,7 @@ def run_grid_search_multiprocess():
             'target_col': tg,
             'target_type': 'direction',
             'seq_len': seq,
-            'lstm_units': units,
+            'units': units,
             'threshold_buy': tb,
             'threshold_sell': ts,
             'features_base': ["EMA", "RSI", "MACD_hist", "close", "lstm"],
@@ -341,31 +385,25 @@ def run_grid_search_multiprocess():
             thresholds_buy, thresholds_sell, target_cols
         )
     ]
-
-    print(f"→ {len(configs)} configurations à tester")
-
+    num_configs = len(configs)
+    print(f"→ {num_configs} configurations à tester")
     num_workers = 6
     print(f"Lancement de {num_workers} workers")
-
-    task_queue = mp.Queue()
-    result_queue = mp.Queue()
-
-    workers = [mp.Process(target=worker_cache, args=(task_queue, result_queue), daemon=False)
-               for _ in range(num_workers)]
-
-    for w in workers:
-        w.start()
-
-    for config in configs:
-        task_queue.put(config)
-    print(f"{len(configs)} configs envoyées")
-
-    for _ in range(num_workers):
-        task_queue.put(None)
-
+    """
     results = []
     best_score_prev = best_score = -float('inf')
     best_config = None
+    task_queue = mp.Queue()
+    result_queue = mp.Queue()
+    workers = [mp.Process(target=worker_cache, args=(task_queue, result_queue), daemon=False)
+               for _ in range(num_workers)]
+    for w in workers:
+        w.start()
+    for config in configs:
+        task_queue.put(config)
+    print(f"{len(configs)} configs envoyées")
+    for _ in range(num_workers):
+        task_queue.put(None)
     for _ in range(len(configs)):
         try:
             # On attend un résultat, avec un long timeout pour la sécurité
@@ -388,7 +426,6 @@ def run_grid_search_multiprocess():
             break
         except Exception as e:
             print(f"[Main] Erreur lors de la récupération d'un résultat : {e}")
-
     print("Arrêt des workers...")
     for w in workers:
         if w.is_alive():
@@ -398,6 +435,27 @@ def run_grid_search_multiprocess():
                 w.kill()
                 w.join()
 
+    """
+    results = []
+    best_score = -float('inf')
+    best_config = None
+    tasks_per_worker = 100
+    # Création du Pool
+    with Pool(processes=num_workers, initializer=init_worker, maxtasksperchild=tasks_per_worker) as pool:
+        # On utilise imap_unordered pour traiter les résultats dès qu'ils arrivent
+        results_iterator = pool.imap_unordered(evaluate_config_for_pool, configs)
+        # On boucle sur les résultats au fur et à mesure qu'ils arrivent
+        for i, (score, result, config_result) in enumerate(results_iterator):
+            # Affiche un log tous les N résultats pour suivre la progression
+            if (i + 1) % 10 == 0:
+                print(f"--- {i + 1} / {num_configs} tâches terminées ---")
+            if score > -999.0:
+                config_result['result'] = result
+                results.append((score, config_result))
+                if score > best_score:
+                    best_score = score
+                    best_config = config_result.copy()
+                    print(f"\nNOUVEAU RECORD → {score:.6f} (config renko={best_config['renko_size']})")
     if best_config is not None:
         print(best_config)
         os.makedirs(SAVE_PATH_DIR, exist_ok=True)

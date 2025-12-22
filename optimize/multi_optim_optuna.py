@@ -1,10 +1,9 @@
 import gc
 import os
 import json
-import numpy as np
 import optuna
 import torch
-from optuna.trial import TrialState
+
 
 # ==================================================================
 # TA FONCTION D'ÉVALUATION (doit être en haut du fichier ou importée)
@@ -16,7 +15,7 @@ def evaluate_config(config):
     # → retourne juste le score (float)
     try:
         # Exemple fictif (remplace par ton vrai code)
-        from optimize.triple_module import run_backtest  # ← importe ici si besoin
+        from backtest.backtest_module import run_backtest  # ← importe ici si besoin
         score = run_backtest(config)
         return float(score)
     except Exception as e:
@@ -129,8 +128,6 @@ def run_optuna_search(n_trials=500, timeout_minutes=30):
 # ==================================================================
 def plot_optuna_visualizations(study):
     import optuna.visualization as vis
-    import matplotlib.pyplot as plt
-    import plotly
 
     print("\nGénération des visualisations Optuna... (ça vaut le coup d'attendre 10 sec)")
 

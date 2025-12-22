@@ -1,0 +1,224 @@
+# utils/model_utils.py
+import joblib
+import tensorflow as tf
+import numpy as np
+import pandas as pd
+import os
+from tensorflow.keras.models import Model, Sequential
+from tensorflow import keras
+import lightgbm as lgb
+import xgboost as xgb
+from typing import List, Tuple, Dict
+from numba import njit, prange
+from sklearn.preprocessing import MinMaxScaler
+from utils.scaler_utils import train_fit_transform_scaler, load_and_transform
+from utils.utils import get_extension
+
+nn_servers = ['SIMPLE', 'ULTRA', 'LSTM', 'GRU', 'TRANSFORMER', 'TFT', 'N_BRICKS', 'XGB', 'LGBM', 'MLP']
+kr_servers = ['simple', 'ultra', 'lstm', 'gru', 'transformer', 'mlp']
+
+def generate_param_combinations(grid):
+    import itertools
+    keys = grid.keys()
+    values = [grid[k] if isinstance(grid[k], list) else [grid[k]] for k in keys]
+    for combo in itertools.product(*values):
+        yield dict(zip(keys, combo))
+
+# ================================
+# 1. FONCTIONS UTILITAIRES
+# ================================
+def clean_features(df, cols):
+    dfc = df[cols].copy()
+    dfc = dfc.replace([np.inf, -np.inf], np.nan).fillna(0)
+    return dfc
+
+def config_to_features(config:dict):
+    features = config["features"]
+    target = config["target"]
+    features_cols = []
+    total_cols = []
+    target_cols = target["target_col"]
+    if not isinstance(target_cols, list):
+        target_cols = [target_cols]
+    for col in features:
+        if len(col) > 1:
+            if col not in target["target_col"]:
+                features_cols.append(col)
+            total_cols.append(col)
+    for col in target_cols:
+        if col not in features_cols:
+            if target.get("target_include", False):
+                features_cols.append(col)
+        if col not in total_cols:
+            total_cols.append(col)
+    return features_cols, target_cols, total_cols
+
+# =============================================
+# 1. SCALING COLS (features or targets seulement)
+# =============================================
+def scale_cols_only(
+    train_df: pd.DataFrame,
+    val_df: pd.DataFrame,
+    test_df: pd.DataFrame,
+    cols: List[str],
+):
+    scaler, train = train_fit_transform_scaler(train_df, cols)
+    val   = load_and_transform(scaler, val_df)
+    test  = load_and_transform(scaler, test_df)
+    return scaler, train, val, test
+
+# =============================================
+# 2. ASSEMBLAGE + TARGETS BRUTS
+# =============================================
+def assemble_targets(
+    X_train_scaled, X_val_scaled, X_test_scaled,
+    train_df, val_df, test_df,
+    target_cols: List[str]
+):
+    y_train = train_df[target_cols].to_numpy(dtype=np.float32)
+    y_val   = val_df[target_cols].to_numpy(dtype=np.float32)
+    y_test  = test_df[target_cols].to_numpy(dtype=np.float32)
+
+    train_ready = np.hstack([X_train_scaled, y_train])
+    val_ready   = np.hstack([X_val_scaled,   y_val])
+    test_ready  = np.hstack([X_test_scaled,  y_test])
+
+    return train_ready, val_ready, test_ready
+
+# =============================================
+# 2b. ASSEMBLAGE + TARGETS scaled
+# =============================================
+def assemble_with_targets(
+    X_train_scaled, X_val_scaled, X_test_scaled,
+    y_train_scaled, y_val_scaled, y_test_scaled,
+):
+    train_ready = np.hstack([X_train_scaled, y_train_scaled])
+    val_ready   = np.hstack([X_val_scaled,   y_val_scaled])
+    test_ready  = np.hstack([X_test_scaled,  y_test_scaled])
+
+    return train_ready, val_ready, test_ready
+
+# =============================================
+# 3. CREATE SEQUENCES — NUMBA ULTRA-RAPIDE
+# =============================================
+"""
+pour seq = 5 et len = 11
+n_samples = 7
+i = 0,1,2,3,4,5,6
+X 0-4 à 6-10            la lim haute est exclue
+y 4,5,6,7,8,9,10 
+soit y avec -1 si on veut symchroniser sinon on anticipe y par rapport à X
+"""
+@njit(fastmath=True)
+def create_sequences_numba(data: np.ndarray, seq_len: int, n_features: int, horizon: int = 0):
+    n_samples = len(data) - seq_len - horizon + 1   # nombre d'échantillons
+    n_targets = data.shape[1] - n_features  # nombre total de colonnes - celles des features = nombre colonnes target
+
+    X = np.empty((n_samples, seq_len, n_features), dtype=np.float32)
+    y = np.empty((n_samples, n_targets), dtype=np.float32)
+
+    # Attn normalement la dernière ligne aurait dû être enlevée car on ne veut que des bougies closes (valides)
+    # ici on retourne tout !
+    for i in range(n_samples):
+        X[i] = data[i:i + seq_len, :n_features]
+        y[i] = data[i + horizon + seq_len-1, n_features:]
+
+    return X, y
+
+# ======================load and save version simplifiée ==============================
+def save_model(model, path: str, model_type: str = None):
+    """
+    Sauvegarde un modèle (Keras, XGBoost ou LightGBM).
+    Parameters
+    ----------
+    model : objet modèle
+    path : str
+        Chemin complet avec extension (.keras, .json, .txt)
+    model_type : str, optional
+        'keras', 'xgb' ou 'lgb'. Si None, déduit de l'extension.
+    """
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    ext = get_extension(path)
+    if model_type is None and ext != "" and ext != ".":
+        if ext in ['.keras', '.h5']:
+            model_type = 'keras'
+        elif ext in ['.json', '.xgb']:
+            model_type = 'xgb'
+        elif ext in ['.txt', '.lgb']:
+            model_type = 'lgb'
+        else:
+            raise ValueError(f"Extension {ext} non reconnue pour sauvegarde modèle")
+    else:
+        model_type = model_type.lower()
+    print(f"Sauvegarde modèle {model_type.upper()} → {path}")
+    if model_type == 'keras' or model_type in kr_servers:
+        if ext == "":
+            path += ".keras"
+        elif ext == ".":
+            path += "keras"
+        model.save(path)  # .keras ou .h5 selon l'extension
+    elif model_type == 'xgb':
+        if ext == "":
+            path += ".json"
+        elif ext == ".":
+            path += "json"
+        model.save_model(path)  # .json recommandé (lisible)
+    elif model_type == 'lgb' or model_type == 'lgbm':
+        if ext == "":
+            path += ".txt"
+        elif ext == ".":
+            path += "txt"
+        model.save_model(path)  # .txt recommandé (lisible)
+    else:
+        raise ValueError(f"Type de modèle {model_type} non supporté")
+
+def load_model(path: str, model_type: str = None):
+    """
+    Charge un modèle sauvegardé.
+    Returns
+    -------
+    objet modèle chargé
+    """
+    ext = get_extension(path)
+    if model_type is None:
+        ext = os.path.splitext(path)[1].lower()
+        if ext in ['.keras', '.h5']:
+            model_type = 'keras'
+        elif ext in ['.json', '.xgb']:
+            model_type = 'xgb'
+        elif ext in ['.txt', '.lgb']:
+            model_type = 'lgb'
+        else:
+            raise ValueError(f"Extension {ext} non reconnue")
+    else:
+        model_type = model_type.lower()
+    if model_type == 'keras' or model_type in kr_servers:
+        if ext == "":
+            path += ".keras"
+        elif ext == ".":
+            path += "keras"
+    elif model_type == 'xgb':
+        if ext == "":
+            path += ".json"
+        elif ext == ".":
+            path += "json"
+    elif model_type == 'lgb' or model_type == 'lgbm':
+        if ext == "":
+            path += ".txt"
+        elif ext == ".":
+            path += "txt"
+    else:
+        raise ValueError(f"Type de modèle {model_type} non supporté")
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"Modèle non trouvé : {path}")
+    print(f"Chargement modèle {model_type.upper()} ← {path}")
+    if model_type == 'keras' or model_type in kr_servers:
+        return keras.models.load_model(path)
+    elif model_type == 'xgb':
+        model = xgb.XGBClassifier()  # ou XGBRegressor selon ton cas
+        model.load_model(path)
+        return model
+    elif model_type == 'lgb' or model_type == 'lgbm':
+        return lgb.Booster(model_file=path)  # LightGBM utilise Booster pour charger
+    else:
+        return None
