@@ -32,6 +32,7 @@ class Connexion(object):
 
         self.mt5 = mt5
         self.connected = False
+        self.disconnected = False
         self.login_id = login
         self.password = password
         self.mt5_path = mt5_path
@@ -41,18 +42,23 @@ class Connexion(object):
         if self.connected:
             if self.mt5_path is not None:
                 if not self.mt5.initialize(path=self.mt5_path):
-                    print("MT5 chemin：{}".format(self.mt5_path))
-                    print("initialisation self.mt5 le client a échoué")
+                    if not self.disconnected:
+                        print("MT5 chemin：{}".format(self.mt5_path))
+                        print(f"{datetime.now()} initialisation self.mt5 le client a échoué")
                     self.mt5.shutdown()
                     self.connected = False
+                    self.disconnected = True
                     return False
             else:
                 if not self.mt5.initialize():
-                    print("initialisation self.mt5 le client a échoué")
-                    print("Veuillez essayer après avoir spécifié le chemin self.mt5")
+                    if not self.disconnected:
+                        print("initialisation self.mt5 le client a échoué")
+                        print(f"{datetime.now()} Veuillez essayer après avoir spécifié le chemin self.mt5")
                     self.mt5.shutdown()
                     self.connected = False
+                    self.disconnected = True
                     return False
+            self.disconnected = False
             return True
         # display data on the MetaTrader 5 package
         # print("MetaTrader5 package author: ", self.mt5.__author__)
@@ -61,17 +67,18 @@ class Connexion(object):
         if self.mt5_path is not None:
             if not self.mt5.initialize(path=self.mt5_path):
                 print("MT5 chemin：{}".format(self.mt5_path))
-                print("initialisation self.mt5 le client a échoué")
+                print(f"{datetime.now()} initialisation self.mt5 le client a échoué")
                 self.mt5.shutdown()
                 return False
         else:
             if not self.mt5.initialize():
                 print("initialisation self.mt5 le client a échoué")
-                print("Veuillez essayer après avoir spécifié un chemin self.mt5")
+                print(f"{datetime.now()} Veuillez essayer après avoir spécifié un chemin self.mt5")
                 self.mt5.shutdown()
                 return False
             else:
-                print('MT5 init')
+                print(f'{datetime.now()} MT5 init')
+                self.disconnected = False
 
         # self.mt5_path = self.mt5.terminal_info()[19]
 
@@ -81,24 +88,26 @@ class Connexion(object):
         # print(mt5.version())
 
         if self.login_id is None or self.login_id == 0:
-            print("login without account, but terminal account")
+            print(f"{datetime.now()} login without account, but terminal account")
             account_info = self.mt5.account_info()
             print("name   = {}".format(account_info.name))
             print("login  = {}".format(account_info.login))
             print("server = {}".format(account_info.server))
             self.connected = True
+            self.disconnected = False
             return True
 
         authorized = self.mt5.login(self.login_id, password=self.password)
         if authorized:
-            print("Les informations utilisateur sont les suivantes：")
+            print(f"{datetime.now()} Les informations utilisateur sont les suivantes：")
             account_info = self.mt5.account_info()
             print("name   = {}".format(account_info.name))
             print("login  = {}".format(account_info.login))
             print("server = {}".format(account_info.server))
             self.connected = True
+            self.disconnected = False
         else:
-            print('LOGIN FAILED!!!')
+            print(f'{datetime.now()} LOGIN FAILED!!!')
             self.mt5.shutdown()
             return False
         return True

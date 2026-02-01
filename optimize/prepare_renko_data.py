@@ -1,12 +1,16 @@
 import gc
 import os
 import multiprocessing as mp
+import pickle
+
 import numpy as np
 import pandas as pd
 from datetime import datetime, timedelta
 
+from decision.candle_decision import calculate_japonais
 # 1. Définir le dossier de cache où seront stockés les fichiers
-from optimize.optimize_optuna import optimize_start, RENKO_CACHE_DIR
+from optimize.optimize_optuna import optimize_start, RENKO_CACHE_DIR, SYMBOL
+from utils.rate_utils import ticks2rates
 from utils.renko_utils import tick21renko
 
 # ======================================================================
@@ -15,41 +19,52 @@ from utils.renko_utils import tick21renko
 # Chemin fixe du fichier bn/,-* optimisé (on le crée une seule fois)
 start_date = None
 end_date = None
-symbol = "ETHUSD"
-TICKS_NPY_PATH = f"../data/{symbol}_ticks_optimized.npy"
+
+TICKS_NPY_PATH = f"../data/{SYMBOL}_ticks_optimized.npy"
 
 def prepare_ticks_once():
     print("Préparation du fichier ticks optimisé (une seule fois)...")
     start = start_date
     end = end_date
-    base_name = f"../data/{symbol}_{start.strftime('%Y_%m_%d_%H_%M_%S')}_{end.strftime('%Y_%m_%d_%H_%M_%S')}.pkl"
+    base_name = f"../data/{SYMBOL}_{start.strftime('%Y_%m_%d_%H_%M_%S')}_{end.strftime('%Y_%m_%d_%H_%M_%S')}.pkl"
     """À lancer UNE FOIS quand tu changes de période)"""
     if os.path.exists(base_name):
         print("Fichier ticks optimisé déjà existant → skip")
         return False
 
     from utils.utils import reload_ticks_from_pickle
-    df = reload_ticks_from_pickle(base_name, 'ETHUSD', None, start, end)
-    print("col ticks", df.columns.tolist())
-    if df.empty:
+    df_ticks = reload_ticks_from_pickle(base_name, SYMBOL, None, start, end)
+    print("col ticks", df_ticks.columns.tolist())
+    if df_ticks.empty:
         raise "data empty"
     # On garde QUE time_msc, bid, ask → float32 + int64
-    arr = np.zeros(len(df), dtype=[
+    df_ticks = df_ticks[['time', 'bid','ask']]
+
+    arr = np.zeros(len(df_ticks), dtype=[
         ('time', 'int64'),
         ('bid', 'float32'),
         ('ask', 'float32')
     ])
 
-    if 'time' not in df.columns:
-        arr['time'] = df.index.values.astype('int64')
+    if 'time' not in df_ticks.columns:
+        arr['time'] = df_ticks.index.values.astype('int64')
     else:
-        arr['time'] = df['time'].values.astype('int64')  # ← déjà en ms depuis 1970
-    arr['bid'] = df['bid'].astype('float32').values
-    arr['ask'] = df['ask'].astype('float32').values
+        arr['time'] = df_ticks['time'].values.astype('int64')  # ← déjà en ms depuis 1970
+    arr['bid'] = df_ticks['bid'].astype('float32').values
+    arr['ask'] = df_ticks['ask'].astype('float32').values
 
     np.save(TICKS_NPY_PATH, arr)
     print(f"Fichier créé : {TICKS_NPY_PATH} → {os.path.getsize(TICKS_NPY_PATH) / 1024 ** 3:.2f} GB")
-    del df
+    """
+    with (open(TICKS_NPY_PATH, 'wb')) as file:
+        pickle.dump(df_ticks, file)
+    df = ticks2rates(df_ticks, '1m', 'bid')
+    df = calculate_japonais((df))
+    filename = f"../data/df_{symbol}.pkl"
+    with (open(filename, 'wb'))as file:
+        pickle.dump(df, file)
+    """
+    del df_ticks
     return True
 
 def get_ticks_dataframe():
@@ -60,13 +75,16 @@ def get_ticks_dataframe():
     df.index = pd.to_datetime(df.index, unit="ms")
     return df
 
+def get_ticks_dataframe_():
+    return pd.read_pickle(TICKS_NPY_PATH)
 
 # ======================================================================
 # SCRIPT DE PRÉ-CALCUL DES BOUGIES RENKO
 # ======================================================================
 
 # 2. Définir ici EXACTEMENT les mêmes tailles de renko que dans votre script d'optimisation
-RENKO_SIZES_TO_PREPARE = np.arange(10.0, 40.0, 0.1)  # Assurez-vous que cette liste est à jour
+RENKO_SIZES_TO_PREPARE = np.arange(6.0, 40.0, 0.1)  # Assurez-vous que cette liste est à jour
+#RENKO_SIZES_TO_PREPARE = np.arange(20.0, 60.0, 1)  # Assurez-vous que cette liste est à jour
 
 def create_renko_file(renko_size):
     """
@@ -75,8 +93,8 @@ def create_renko_file(renko_size):
     2. Calcule les bougies Renko pour UNE taille.
     3. Sauvegarde le résultat dans un fichier .pkl dédié.
     """
-    renko_size = round(renko_size, 2)
-    file_path = os.path.join(RENKO_CACHE_DIR, f"renko_{renko_size:.2f}.pkl")
+    renko_size = round(renko_size, 1)
+    file_path = os.path.join(RENKO_CACHE_DIR, f"renko_{renko_size:.1f}.pkl")
 
     # Si le fichier existe déjà, on ne fait rien pour gagner du temps
     """

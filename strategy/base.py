@@ -52,8 +52,8 @@ class Strategy(QThread):
         self.ticket = 0
         self.positions = []
         self.futurClosed = NONE
-        self.version = self.live['version']
-        self.hcode = self.live['hcode']
+        self.version = self.live.get('version', [])
+        self.hcode = self.live.get('hcode', 'default hcode')
         self.model = None
         self.scaler = None
         if len(self.version) > 0:

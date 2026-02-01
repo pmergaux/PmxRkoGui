@@ -1,4 +1,7 @@
 # utils/model_utils.py
+import datetime
+import pickle
+
 import joblib
 import tensorflow as tf
 import numpy as np
@@ -59,6 +62,9 @@ def prepare_target_column(df, target_col, target_type, horizon=1):
     Prépare la colonne cible en fonction du type demandé.
     Retourne le DataFrame avec une nouvelle colonne 'target'.
     """
+    if not target_col in df.columns:
+        print(f"target {target_col} not in columns")
+        raise f"target not in columns {target_col}"
     df = df.copy()
     if target_type == 'direction':
         # On prédit le signe du changement futur
@@ -199,7 +205,7 @@ def save_model(model, path: str, model_type: str = None):
             path += ".txt"
         elif ext == ".":
             path += "txt"
-        model.save_model(path)  # .txt recommandé (lisible)
+        save_lgbm_model(model, path)  # .txt recommandé (lisible)
     else:
         raise ValueError(f"Type de modèle {model_type} non supporté")
 
@@ -253,3 +259,65 @@ def load_model(path: str, model_type: str = None):
         return lgb.Booster(model_file=path)  # LightGBM utilise Booster pour charger
     else:
         return None
+
+def save_lgbm_model(model, path: str = None, model_type: str = 'auto'):
+    """
+    Sauvegarde un modèle LightGBM (Booster ou LGBMClassifier)
+    - Si Booster → .txt (lisible, recommandé)
+    - Si LGBMClassifier → extrait le Booster et sauvegarde .txt
+    - Option pickle (.pkl) si tu veux tout garder (mais déconseillé)
+
+    Retourne le chemin final utilisé
+    """
+    if path is None:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+        path = f"models/lgbm_best_{timestamp}.txt"
+
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+
+    if isinstance(model, lgb.Booster):
+        model.save_model(path)
+        print(f"Modèle Booster sauvegardé → {path}")
+
+    elif isinstance(model, lgb.LGBMClassifier) or isinstance(model, lgb.LGBMRegressor):
+        # On extrait le Booster interne
+        booster = model.booster_
+        booster.save_model(path)
+        print(f"Modèle LGBMClassifier/Regressor → Booster extrait et sauvegardé → {path}")
+
+        # Option : sauvegarde complète via pickle (si tu veux les params scikit-learn)
+        pickle_path = path + ".pkl"
+        with open(pickle_path, 'wb') as f:
+            pickle.dump(model, f)
+        print(f"Sauvegarde complète (pickle) → {pickle_path}")
+
+    else:
+        raise TypeError("Modèle non reconnu comme LightGBM")
+
+    return path
+
+def load_lgbm_model(path: str):
+    """
+    Charge un modèle LightGBM depuis un fichier .txt ou .pkl
+    Retourne un Booster ou un LGBMClassifier selon le fichier
+    """
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"Modèle non trouvé : {path}")
+
+    ext = os.path.splitext(path)[1].lower()
+
+    if ext in ['.txt', '.model']:
+        # Charge comme Booster (API native)
+        booster = lgb.Booster(model_file=path)
+        print(f"Modèle Booster chargé ← {path}")
+        return booster
+
+    elif ext == '.pkl':
+        # Charge le modèle complet (scikit-learn API)
+        with open(path, 'rb') as f:
+            model = pickle.load(f)
+        print(f"Modèle complet (pickle) chargé ← {path}")
+        return model
+
+    else:
+        raise ValueError(f"Extension non reconnue : {ext} (attendu .txt ou .pkl)")

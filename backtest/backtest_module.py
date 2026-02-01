@@ -5,6 +5,7 @@ import pickle
 
 import optuna
 
+from strategy.pmxRko import decision_std
 from train.trainer import (lstm_train_simple, lstm_train_ultra, lstm_predict_ultra,
                            lstm_train_model, lstm_predict_model, tft_train_predict_fast,
                            tft_train_predict, tft_to_proba, nbeats_train_predict,
@@ -29,13 +30,14 @@ import time
 from joblib import dump
 
 # ====================== TES FONCTIONS EXISTANTES (à garder) ======================
-from utils.config_utils import config_to_hash, prepare_to_hashcode, params_base, features_base, to_config_std
+from utils.config_utils import config_to_hash, prepare_to_hashcode, to_config_std
 from utils.renko_utils import tick21renko
 from utils.utils import reload_ticks_from_pickle
 from utils.model_utils import (scale_cols_only, assemble_with_targets,
                                create_sequences_numba,
-                               config_to_features, nn_servers, prepare_target_column, prepare_targets_simple)
-from decision.candle_decision import add_indicators, choix_features
+                               config_to_features, nn_servers, prepare_target_column, prepare_targets_simple,
+                               save_model)
+from decision.candle_decision import add_indicators, choix_features, calculate_indicators
 from decision.trading_decision import trading_decision  # ← ton add_indicators Numba parfait
 
 
@@ -60,7 +62,7 @@ def decision(df, config):
 # ==================================================================
 # 4. BACKTEST RÉALISTE
 # ==================================================================
-def backtest(df_test, proba, sl=60, tp=30, buy_thr=0.6, sell_thr=0.4):
+def backtest(df_test, dj, proba, sl=60, tp=30, buy_thr=0.6, sell_thr=0.4,close_buy=0.53, close_sell=0.47):
     from utils.utils import NONE, BUY, SELL, CLOSE, FCLOSE
     if proba is not None:
         nn = len(proba)
@@ -83,21 +85,24 @@ def backtest(df_test, proba, sl=60, tp=30, buy_thr=0.6, sell_thr=0.4):
         close = df['close'].iloc[i]
         if close == 0:
             continue
+        #time = df['time'].iloc[i]
+        #print('time',time)
+        #row = dj.index.get_loc(time)
+        #print('row',row)
         if proba is not None:
-            signal = trading_decision(pos, entry_price, close, df[i-3:i], None,
-                                    proba[i-3:i], sl, tp, buy_thr, sell_thr)
+            sigClose, sigOpen = trading_decision(pos, entry_price, close, df[i-3:i],None,   # dj[row-3:row],
+                                    proba[i-3:i], sl, tp, buy_thr, sell_thr, close_buy, close_sell)
         else:
-            signal = trading_decision(pos, entry_price, close, df[i-3:i], None,
-                                      None, sl, tp, buy_thr, sell_thr)
+            sigClose, sigOpen = trading_decision(pos, entry_price, close, df[i-3:i], None,    #dj[row-3:row],
+                                      None, sl, tp, buy_thr, sell_thr,close_buy, close_sell)
         # === GESTION POSITION ===
-        if pos == 0 and signal != NONE:
-            pos = signal
-            entry_price = close
-            continue
-        elif pos != 0 and signal >= CLOSE:
+        if pos != 0 and sigClose >= CLOSE:
             # sortie forcée si signal neutre ou de sens opposé
             pnl.append(pos * (close - entry_price) - spread_dollar)
             pos = 0
+        if pos == 0 and sigOpen != NONE:
+            pos = sigOpen
+            entry_price = close
             continue
     # === Si on sort à la fin ===
     if pos != 0:
@@ -108,15 +113,17 @@ def backtest(df_test, proba, sl=60, tp=30, buy_thr=0.6, sell_thr=0.4):
     if len(a) == 0:
         # print("aucun trade")
         return -999999, {}
-    print(f"profit {np.sum(a):.2f} trades {len(a)} winner {np.sum(a > 0)} win rate {(np.sum(a > 0)/len(a)):.2%} moyenne {np.mean(a):.2f} écart type {np.std(a, ddof=1):.4f}")
-    result = {'profit': np.sum(a), 'trades': len(a), 'winner': np.sum(a > 0), 'win_rate': (np.sum(a > 0) / len(a)), 'mean': np.mean(a), 'std': np.std(a, ddof=1)}
-    sharpe = a.mean() / a.std() * np.sqrt(365 * 390)   # calcul pour 390 renko/j. estimés
-    return sharpe * 1000, result
+    print(f"profit {np.sum(a):.2f} trades {len(a)} winner {np.sum(a > 0)} win rate {(np.sum(a > 0)/len(a)):.2%} moyenne {np.mean(a):.2f} écart type {np.std(a, ddof=1):.4f} "
+          f" SL {sl} TP {tp}")
+    sharpe = a.mean() * 1000 / a.std() * np.sqrt(365 * 390)   # calcul pour 390 renko/j. estimés
+    profit = np.sum(a)
+    result = {'score': sharpe, 'profit': profit, 'trades': len(a), 'winner': np.sum(a > 0), 'win_rate': (np.sum(a > 0) / len(a)), 'mean': np.mean(a), 'std': np.std(a, ddof=1)}
+    return sharpe, result
 
 # ==================================================================
 # 5. ÉVALUATION FINALE — LA VÉRITÉ
 # ==================================================================
-def run_backtest(config, save_artifacts=False):
+def run_backtest(config_std, save_artifacts=False):
     score = float('-inf')
     try:
         # ← On charge les données ici, une fois par worker (ou même une fois globalement)
@@ -133,21 +140,44 @@ def run_backtest(config, save_artifacts=False):
             exit()
         df['time'] = pd.to_datetime(df['time'])
         """
-        if config is None:
+        if config_std is None:
             raise Exception("no config no optim")
         try:
-            df_renko = config['data']
+            df_renko = config_std['data']
         except BaseException as e:
             print("No data no optim", e)
             return score, {}
-        del config['data']
+        del config_std['data']
+        #df = config['df']
+        #del config['df']
+        df = None
         # 0. standardiser la config par exemple si on doit utiliser le hcode
-        VERSION = config["VERSION"]
-        config_std = to_config_std(config)
+        VERSION = config_std['live']['version']
+        try:
+            # df_renko = add_indicators(df_renko, config_std["parameters"])
+            df_renko = decision_std(df_renko, config_std)
+            if df_renko is None:
+                return score, {}
+        except BaseException as e:
+            print("err add indicators ", e)
+            return score, {}
+        # inutile si decision seule
+        seq_len = config_std['lstm'].get('seq_len', 24)
+        units = config_std['lstm'].get('lstm_units', 48)
+        thresh_buy = config_std['parameters'].get('threshold_buy', 0.6)
+        thresh_sell = config_std['parameters'].get('threshold_sell', 0.4)
+        close_buy = config_std['parameters'].get('close_buy', 0.53)
+        close_sell = config_std['parameters'].get('close_sell', 0.47)
+        if close_buy > thresh_buy:
+            close_buy = thresh_buy - 0.01
+            config_std['parameters']['close_buy'] = close_buy
+        if close_sell < thresh_sell:
+            close_sell = thresh_sell + 0.01
+            config_std['parameters']['close_sell'] = close_sell
         # les colonnes data, cible...
         features_cols, target_cols, total_cols = config_to_features(config_std)
         config_std["features"] = features_cols
-        renko_size = config['renko_size']
+        renko_size = config_std['parameters']['renko_size']
         # 1. Renko + indicateurs
         """
         try:
@@ -156,27 +186,24 @@ def run_backtest(config, save_artifacts=False):
             print("err create renko", e)
             return score, {}
         """
-        try:
-            df_renko = add_indicators(df_renko, config_std["parameters"])
-            if df_renko is None:
-                return score, {}
-        except BaseException as e:
-            print("err add indicators ", e)
-            return score, {}
         # 2. Features
         need_nn = any(vs in nn_servers for vs in VERSION)
         proba = None
-        # inutile si decision seule
-        seq_len = config.get('seq_len', 24)
-        units = config.get('lstm_units', 48)
-        thresh_buy = config.get('threshold_buy', 0.6)
-        thresh_sell = config.get('threshold_sell', 0.4)
         hcode = "default_hcode"
+        target_col_sav = None
+        # print("Target col ", target_cols)
         if need_nn:
-            target_type = config.get('target_type', 'direction')
-            df_renko = prepare_target_column(df_renko, target_cols[0], target_type)
+            target_type = config_std['target'].get('target_type', 'direction')
+            try:
+                df_renko = prepare_target_column(df_renko, target_cols[0], target_type)
+            except BaseException as e:
+                print("config err target", e)
+                return score, {}
+
             if 'target' in df_renko.columns:
+                target_col_sav = target_cols
                 target_cols = ['target']
+            """
             else:
                 if "target_sign_mean" in target_cols:
                     df_renko = prepare_targets_simple(df_renko, horizon=5)
@@ -187,6 +214,7 @@ def run_backtest(config, save_artifacts=False):
                             continue
                         tarc.append(col)
                     target_cols = tarc
+            """
             if len(df_renko) < seq_len*4:
                 print("pas assez de renko", len(df_renko))
                 return score, {}
@@ -194,7 +222,7 @@ def run_backtest(config, save_artifacts=False):
             try:
                 hcode = config_to_hash(prepare_to_hashcode(config_std))
                 # print("hcode", hcode)
-                config["hcode"] = hcode
+                config_std['live']["hcode"] = hcode
             except BaseException as e:
                 print("err hcode", e)
             # 3. Split
@@ -283,13 +311,13 @@ def run_backtest(config, save_artifacts=False):
                             model.save_model(path)
                         elif "LGBM" in VERSION:
                             path = f"{path}.txt"
-                            model.save_model(path)
+                            save_model(model, path)
                         else:
                             path = f"{path}.keras"
                             model.save(path)
                         print(f"Model saved to {path}")
                         # If we are just saving, we don't need to predict and backtest
-                        return 0, {'hcode': hcode}
+                        # return 0, {'hcode': hcode}
 
                     # Prediction logic
                     try:
@@ -311,20 +339,23 @@ def run_backtest(config, save_artifacts=False):
         else:
             if not save_artifacts:
                 test_df = df_renko.iloc[-min(240, int(len(df_renko)*0.2)):]
-                test_return = decision(test_df, config_std)
+                test_return, df = decision_std(test_df, df, config_std)
                 proba = None
 
         if save_artifacts:
             print("Artifacts saved. Skipping backtest.")
-            return 0, {'hcode': hcode}
+            #return 0, {'hcode': hcode}
 
         # 7. Backtest réaliste
         try:
-            score, result = backtest(test_return, proba, config_std['live']['sl'], config_std['live']['tp'],thresh_buy, thresh_sell)
+            score, result = backtest(test_return, df, proba, config_std['live']['sl'], config_std['live']['tp'],thresh_buy, thresh_sell, close_buy, close_sell)
         except BaseException as e:
             print("BT err ", e)
             result = {}
-        print(f"{VERSION} = {target_cols} | {renko_size:5.1f} | {config['ema_period']} | {config['rsi_period']} | {seq_len:3d} | {units:3d} | {thresh_buy:.3f}/{thresh_sell:.3f} → Score {score:8.1f}")
+        if target_col_sav is not None:
+            config_std['target']['target_col'] = target_col_sav[0]
+        print(f"{VERSION} = {target_cols} | {renko_size:5.1f} | → Score {score:8.1f}")
+        result['config'] = config_std
         return score, result
 
     except Exception as e:

@@ -196,6 +196,7 @@ def load_ticks(symbol, cl, start_date, end_date):
             print(f"{datetime.now()} Avertissement : Initialisation MT5 échouée.")
             return ticks
         try:
+            print(start_date, end_date)
             data = mt50.copy_ticks_range(symbol, start_date, end_date, MetaTrader5.COPY_TICKS_ALL)
             if data is None or len(data) == 0:
                 print(f"{datetime.now()} Avertissement : No ticks.")

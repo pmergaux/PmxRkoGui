@@ -13,7 +13,7 @@ features_base = ["EMA", "RSI", "MACD_hist", "close", "time_live", "ATR", "CCI", 
 params_base = {"renko_size": 17.1, "ema_period": 9, "rsi_period": 14, "rsi_high": 70, "rsi_low": 30,
                 "macd": {"macd_fast": 12, "macd_slow": 26, "macd_signal": 9},
                "cci_period": 14, "cci_high": 100, "cci_low": -100, "atr_period": 14,
-               "threshold_buy": 0.6, "threshold_sell": 0.4}
+               "threshold_buy": 0.6, "threshold_sell": 0.4, "close_buy": 0.53, "close_sell": 0.47}
 lstm_base = {"lstm_seq_len": 48, "lstm_units": 96}
 mlp_base = {"mlp_unit1": 128, "mlp_unit2": 64,"mlp_dropout": 0.3,
                     "mlp_lr": 0.001, "mlp_batch_size": 256, "mlp_patience": 10 }
@@ -67,7 +67,10 @@ def prepare_to_hashcode(config:dict):
     for name in features:
         if name in trans.keys():
             for value in trans[name]:
-                params[value] = parameters[value]
+                if value in parameters.keys():
+                    params[value] = parameters[value]
+                else:
+                    params[name] = value
     version = live.get('version', [])
     ret = {"parameters":params, "features": features, "target": target,
             "symbol":live["symbol"], 'version': version}
@@ -105,7 +108,7 @@ def to_config_std(config):
             print("No config No Optim")
             return None
         config_std = config_live.copy()
-        params_live = config_live.get("parameters")
+        params_live = config_std.get("parameters")
         if params_live is None:
             print("err cfg no live param")
             return None
@@ -134,6 +137,12 @@ def to_config_std(config):
                 params["threshold_sell"] = config.get("threshold_sell",
                                                  params_live.get("threshold_sell",
                                                                                 params_base["threshold_sell"]))
+                params["close_buy"] = config.get("close_buy",
+                                                     params_live.get("close_buy",
+                                                                                params_base["close_buy"]))
+                params["close_sell"] = config.get("close_sell",
+                                                 params_live.get("close_sell",
+                                                                                params_base["close_sell"]))
                 break
         config_std["parameters"] = params
         config_std['features'] = features
@@ -183,6 +192,10 @@ def to_config_std(config):
         close_rules = config.get("close_rules", {})
         if not close_rules:
             config_std["close_rules"] = {"close_sens":True}
+        for key in config_std['live'].keys():
+            if key == 'version' or config.get(key, None) is None:
+                continue
+            config_std['live'][key] = config[key]
         config_std['live']['version'] = version
         return config_std
     except BaseException as e:

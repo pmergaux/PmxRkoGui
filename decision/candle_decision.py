@@ -196,9 +196,8 @@ def calculate_time_live(df):
     # effectuer dans clean_features df['time_live'] = df['time_live'].replace([np.inf, -np.inf], 0).fillna(0)
     return df
 
-def calculate_japonais(df: pd.DataFrame, config:dict):
+def calculate_japonais(df: pd.DataFrame):
     df = df.copy()
-    param = config["parameters"]
     df['bb_mavg'] = df['close'].rolling(window=20).mean()
     df['bb_std'] = df['close'].rolling(window=20).std()
     df['bb_hband'] = df['bb_mavg'] + 2 * df['bb_std']
@@ -210,8 +209,8 @@ def calculate_japonais(df: pd.DataFrame, config:dict):
     open_buy = ((df['direction'] == 1) & (df['close'] < df['bb_mavg']))
     open_sell = ((df['direction'] == -1) & (df['close'] > df['bb_mavg']))
     df['sigo'] = np.where(open_buy, 1, np.where(open_sell, -1, 0))
-    close_sell = (df['close'] < df['bb_lband'])
-    close_buy = (df['close'] > df['bb_hband'])
+    close_sell = (df['close']*1.05 < df['bb_lband'])
+    close_buy = (df['close']*1.05 > df['bb_hband'])
     df['sigc'] = np.where(close_sell, 1, np.where(close_buy, -1, 0))
     return df
 
@@ -220,36 +219,40 @@ def calculate_indicators(df : pd.DataFrame, config: dict) -> pd.DataFrame:
     #df.reset_index(drop=True)
     features = config['features']
     param = config["parameters"]
+    try:
+        df['bb_mavg'] = df['close'].rolling(window=20).mean()
+        df['bb_std'] = df['close'].rolling(window=20).std()
+        df['bb_hband'] = df['bb_mavg'] + 2 * df['bb_std']
+        df['bb_lband'] = df['bb_mavg'] - 2 * df['bb_std']
+    #    df['bb_max'] = df['bb_mavg'] + param.get('niveau', 0.9) * df['bb_std']
+    #    df['bb_min'] = df['bb_mavg'] - param.get('niveau', 0.9) * df['bb_std']
 
-    df['bb_mavg'] = df['close'].rolling(window=20).mean()
-    df['bb_std'] = df['close'].rolling(window=20).std()
-    df['bb_hband'] = df['bb_mavg'] + 2 * df['bb_std']
-    df['bb_lband'] = df['bb_mavg'] - 2 * df['bb_std']
-#    df['bb_max'] = df['bb_mavg'] + param.get('niveau', 0.9) * df['bb_std']
-#    df['bb_min'] = df['bb_mavg'] - param.get('niveau', 0.9) * df['bb_std']
+        if 'EMA' in features:
+            df['EMA'] = trend.EMAIndicator(df['close'], window=param.get('ema_period', 9)).ema_indicator()
+        if 'RSI' in features:
+            df['RSI'] = momentum.RSIIndicator(df['close'], window=param.get('rsi_period', 14)).rsi()
+        if 'MACD_line' in features or 'MACD_hist' in features:
+            pmacd = param.get('macd', {"macd_fast":12, "macd_slow": 26, "macd_signal": 9})
+            macd = trend.MACD(df['close'], window_fast=pmacd["macd_fast"], window_slow=pmacd["macd_slow"], window_sign=pmacd["macd_signal"])
+            df['MACD_line'] = macd.macd()
+            df['MACD_signal'] = macd.macd_signal()
+            df['MACD_hist'] = macd.macd_diff()
+        if 'ATR' in features:
+            df['ATR'] = volatility.AverageTrueRange(df['high'], df['low'], df['close'], window=param.get('atr_period', 14)).average_true_range()
+        if 'Stoch_RSI' in features:
+            df['Stoch_RSI'] = momentum.StochRSIIndicator(df['close'], window=param.get('stochRsi_period', 14)).stochrsi()
+        if 'Williams_R' in features:
+            df['Williams_R'] = momentum.WilliamsRIndicator(df['high'], df['low'], df['close'], lbp=param.get('williamsR_period',14)).williams_r()
+        if 'CCI' in features:
+            df['CCI'] = trend.CCIIndicator(df['high'], df['low'], df['close'], window=param.get('cci_period', 14)).cci()
+        if 'time_live' in features:
+            df = calculate_time_live(df)
+        #print(f"Colonnes après direction_openr_closer: {df.columns.tolist()}")
+        return df.dropna()   #.reset_index(drop=True)
+    except BaseException as e:
+        print(f"Erreur dans calculate_indicators: {e}")
+        raise "Erreur dans calculate_indicators"
 
-    if 'EMA' in features:
-        df['EMA'] = trend.EMAIndicator(df['close'], window=param.get('ema_period', 9)).ema_indicator()
-    if 'RSI' in features:
-        df['RSI'] = momentum.RSIIndicator(df['close'], window=param.get('rsi_period', 14)).rsi()
-    if 'MACD_line' in features or 'MACD_hist' in features:
-        pmacd = param.get('macd', {"macd_fast":12, "macd_slow": 26, "macd_signal": 9})
-        macd = trend.MACD(df['close'], window_fast=pmacd["macd_fast"], window_slow=pmacd["macd_slow"], window_sign=pmacd["macd_signal"])
-        df['MACD_line'] = macd.macd()
-        df['MACD_signal'] = macd.macd_signal()
-        df['MACD_hist'] = macd.macd_diff()
-    if 'ATR' in features:
-        df['ATR'] = volatility.AverageTrueRange(df['high'], df['low'], df['close'], window=param.get('atr_period', 14)).average_true_range()
-    if 'Stoch_RSI' in features:
-        df['Stoch_RSI'] = momentum.StochRSIIndicator(df['close'], window=param.get('stochRsi_period', 14)).stochrsi()
-    if 'Williams_R' in features:
-        df['Williams_R'] = momentum.WilliamsRIndicator(df['high'], df['low'], df['close'], lbp=param.get('williamsR_period',14)).williams_r()
-    if 'CCI' in features:
-        df['CCI'] = trend.CCIIndicator(df['high'], df['low'], df['close'], window=param.get('cci_period', 14)).cci()
-    if 'time_live' in features:
-        df = calculate_time_live(df)
-    #print(f"Colonnes après direction_openr_closer: {df.columns.tolist()}")
-    return df.dropna()   #.reset_index(drop=True)
 
 def choix_features(df: pd.DataFrame, cfg: dict):
     features = cfg['features']

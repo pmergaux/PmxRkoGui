@@ -97,8 +97,31 @@ def mlp_train(X_train, y_train, X_val, y_val, features_len,
 def lgbm_predict(model, X_test):
     """Prédiction sans warning"""
     # Si X_test est un DataFrame, on garde les noms de colonnes
-    proba = model.predict_proba(X_test)[:, 1]
-    return proba
+    #proba = model.predict_proba(X_test)[:, 1]
+    #return proba
+    """
+    Prédiction unifiée pour LightGBM (Booster ou Classifier).
+    Retourne toujours les probabilités de la classe positive.
+    """
+    X_test = np.asarray(X_test)  # force array NumPy (supprime warnings noms colonnes)
+
+    if isinstance(model, lgb.Booster):
+        # Booster → predict() retourne directement les probas
+        proba = model.predict(X_test)
+    elif hasattr(model, 'predict_proba'):
+        # Classifier → predict_proba()
+        proba = model.predict_proba(X_test)
+    else:
+        raise TypeError(f"Modèle non supporté : {type(model)}")
+
+    # Si proba est 1D → c'est déjà la proba positive
+    # Si 2D → on prend la colonne 1
+    if proba.ndim == 1:
+        return proba
+    elif proba.shape[1] == 2:
+        return proba[:, 1]
+    else:
+        raise ValueError(f"Shape de probabilités inattendue : {proba.shape}")
 
 def lgbm_clear(model):
     del model
@@ -146,6 +169,7 @@ def lgbm_train(X_train, y_train, X_val, y_val,
           f"best iteration = {best_iter if best_iter else n_estimators}")
 
     return model
+
 
 # --- MODÈLE 3 : XGBoost - L'autre grand champion du Gradient Boosting ---
 #

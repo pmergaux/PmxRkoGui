@@ -5,8 +5,8 @@ import joblib
 import numpy as np
 import pandas as pd
 
-from train.trainer import lgbm_predit, xgb_predict, lstm_predict_model, mlp_predict
-from utils.model_utils import create_sequences_numba, config_to_features
+from train.trainer import lgbm_predict, xgb_predict, lstm_predict_model, mlp_predict
+from utils.model_utils import create_sequences_numba, config_to_features, prepare_target_column
 from utils.scaler_utils import load_and_transform
 from .base import Strategy
 from utils.renko_utils import tick21renko
@@ -24,12 +24,15 @@ class PmxRkoStrategy(Strategy):
         super().__init__(config)
         self.parent = parent
         self.bricks = None
-        self.renko_size = config.get("parameters").get("renko_size", 20)
+        self.renko_size = config.get("parameters", {}).get("renko_size", 20)
         self.display = None
         self.renko_time = None
         self.count_time = None
         self.debut = False
-        self.minimum = config["lstm"]["lstm_seq_len"] * 4
+        if self.version == "XGB":
+            self.minimum = 256
+        else:
+            self.minimum = config.get("lstm", {}).get("lstm_seq_len", 24) * 4
         self.fopen = False
 
     def calcul_ai(self, trace=False):
@@ -83,19 +86,27 @@ class PmxRkoStrategy(Strategy):
 
     def decision_ai(self, trace=False):
         try:
-            features_cols, target_cols, total_cols = config_to_features(self.cfg)
-            print("feat", features_cols, "tg", target_cols)
+            features_cols, target_cols, _ = config_to_features(self.cfg)
+            # if trace:                print("feat", features_cols, "tg", target_cols)
+            df = self.display[-256:].copy()
             if not isinstance(target_cols, list):
                 target_cols = [target_cols]
-            #target_type = self.cfg['target']['target_type']
-            df = self.display[-256:].copy()
+            target_type = self.cfg['target']['target_type']
+            #target_cols_sav = target_cols
+            try:
+                df = prepare_target_column(df, target_cols[0], target_type)
+            except BaseException as e:
+                print("config err target", e)
+                return None
+            if 'target' in df.columns:
+                target_cols = ['target']
             X_test = load_and_transform(self.scaler, df[features_cols])
             y_test = df[target_cols].to_numpy(dtype=np.float32)    # qu'importe le target_cols ?
             test_r = np.hstack([X_test, y_test])
             X_test_seq, _ = create_sequences_numba(test_r, self.cfg['lstm']['lstm_seq_len'], len(features_cols))
-            print("len Xseq", len(X_test_seq) if X_test_seq is not None else 'None', self.cfg['lstm']['lstm_seq_len'])
+            # print("len Xseq", len(X_test_seq) if X_test_seq is not None else 'None', self.cfg['lstm']['lstm_seq_len'])
             if 'LGBM' in self.version:
-                proba = lgbm_predit(self.model, X_test)
+                proba = lgbm_predict(self.model, X_test)
             elif 'XGB' in self.version:
                 proba = xgb_predict(self.model, X_test)
             elif 'LSTM' in self.version:
@@ -106,35 +117,25 @@ class PmxRkoStrategy(Strategy):
                 proba = self.model.predict(X_test_seq, verbose=0).flatten()
         except BaseException as e:
             print(f"err prediction {self.version} ", e)
+
             return None
-        if trace:
-            print("pba", proba[-3:])
+        # if trace:            print("pba", proba[-3:])
         return proba[-3:]
 
     def decision(self, trace=False):
-        try:
-            self.display = calculate_indicators(self.bricks, self.cfg)
-            self.display = choix_features(self.display, self.cfg)
-        except Exception as e:
-            print(f"decision err {e}")
-        jp = calculate_japonais(self.df, self.cfg)
+        self.display = decision_std(self.bricks, self.cfg)
+        jp = calculate_japonais(self.df)
         dc = self.display[['direction']].tail(3)
-        if not 'sigc' in self.display.columns:
-            self.display['sigc'] = NONE
         sc = self.display[['sigc']].tail(3)
-        if not 'sigo' in self.display.columns:
-            self.display['sigo'] = NONE
         so = self.display[['sigo']].tail(3)
         dd = pd.concat([dc, sc, so], axis=1)
         djd = jp[['direction']].tail(3)
         djc = jp[['sigc']].tail(3)
         djo = jp[['sigo']].tail(3)
         dj = pd.concat([djd, djc, djo], axis=1)
-        if trace:
-            print(dd)
-            print(dj)
+       # if trace:            print(dd)            print(dj)
             # print sur une ligne             print(*dj['sigc'].to_list(), sep = '|')
-        return dd, dj  # dc['direction'].iloc[-2], sc['sigc'].iloc[-2], so['sigo'].iloc[-2]
+        return dd, dj
 
     def TimeisOpen(self):
         now = datetime.now().time()
@@ -152,7 +153,7 @@ class PmxRkoStrategy(Strategy):
             return
         try:
             if self.bricks is None:
-                self.live['init_decal'] = 1000
+                self.live['init_decal'] = 1800
                 self.debut = True
                 Strategy.run(self)
                 try:
@@ -201,20 +202,27 @@ class PmxRkoStrategy(Strategy):
             lp = len(self.positions)
             if self.renko_time == self.bricks.index[-1]:
                 if not self.fopen or lp > 0:
-                    self.positions = select_positions_magic(self.cl.get_positions_symbol(self.live['symbol']),
-                                                            self.live['magic'])
                     self.decision()
                     try:
                         self.parent.update_display({"df": self.display.tail(13), "current_bid": self.ticks['bid'].iloc[-1], "strategy": self})
                     except Exception as e:
                         print(f"err display 2 {e}")
                         return
-                    if self.count_time is None:
+                    if lp > 0:
+                        rc, msg = self.to_be_closed(NONE, self.positions[0], False)
+                        if rc == FCLOSE:
+                            ls = BUY if self.positions[0].type == MetaTrader5.POSITION_TYPE_BUY else SELL
+                            self.close_one(ls, rc, self.positions[0], True, msg)
+                            self.count_time = None
+                            return
+                    if self.count_time is None:   # comme si lp == 0
                         return
                     tdelta = (self.ticks.index[-1] - self.count_time).total_seconds()
-                    if tdelta < 3600:
-                        return
+                    #if tdelta < 3600:             return  # test si position ouverte + 1 h.
                     #print("timedelta", tdelta)
+                    return
+                else:
+                    return
             else:
                 self.renko_time = self.bricks.index[-1]
                 if self.count_time is not None:
@@ -224,39 +232,46 @@ class PmxRkoStrategy(Strategy):
                 print(f"{datetime.now()} {self.live['name']} changement renko {self.renko_time} "
                       f"ex {'sell' if self.bricks['open_renko'].iloc[-2] > self.bricks['close_renko'].iloc[-2] else 'buy'}")
             dd, dj = self.decision(tdelta==0 and not self.fopen)
-            dai = self.decision_ai(True)
+            dai = self.decision_ai(tdelta==0 and not self.fopen)
             try:
                 self.parent.update_display({"df": self.display.tail(13), "current_bid": self.ticks['bid'].iloc[-1], "strategy": self})
             except Exception as e:
                 print(f"err display 3 {e}")
             if (tdelta != 0 or self.count_time is not None) and lp == 0:
-                self.count_time = None   # cas d'un arret externe au prograùmùe
+                self.count_time = None   # cas d'un arret externe au programme
             ls = NONE
             if lp > 0:
                 ls = BUY if self.positions[0].type == MetaTrader5.POSITION_TYPE_BUY else SELL
                 if not self.TimeisOpen():
                     self.close_one(ls, CLOSE, self.positions[0], True, "time")
                     return
-            signal = trading_decision(ls, self.positions[0].price_open, self.positions[0].price_current,
-                                      dd, None, dai, self.ssl, self.stp,
-                                      self._param['threshold_buy'], self._param['threshold_sell'])
+            sigClose, sigOpen = trading_decision(ls, self.positions[0].price_open if lp > 0 else 0.0,
+                                      self.positions[0].price_current if lp > 0 else 0.0,
+                                      dd, dj, dai, self.ssl, self.stp,
+                                      self._param['threshold_buy'], self._param['threshold_sell'],
+                                      self._param['close_buy'], self._param['close_sell'], True)
+            print('signaux', sigClose, sigOpen)
             self.fopen = False
             if not self.TimeisOpen():                 return
-            if signal == BUY or signal == SELL:
-                self.stp = self.live['tp']
-                self.live['tp'] = 0
-                self.ssl = self.live['sl']
-                self.live['sl'] = 0
-                self.open(signal, 0)
-                self.live['tp'] = self.stp
-                self.live['sl'] = self.ssl
-                self.futurClosed = NONE
-                self.count_time = self.ticks.index[-1]
+            if lp > 0:
+                msg = 'norm' if sigClose == CLOSE else 'sltp' if sigClose == FCLOSE else ''
+                if sigClose > 3:
+                    self.close_one(ls, sigClose, self.positions[0], True, msg)
+                    self.count_time = None
+                    self.positions = select_positions_magic(self.cl.get_positions_symbol(self.live['symbol']), self.live['magic'])
+                    lp = len(self.positions)
+            if lp == 0:
+                if sigOpen == BUY or sigOpen == SELL:
+                    self.stp = self.live['tp']
+                    self.live['tp'] = 0
+                    self.ssl = self.live['sl']
+                    self.live['sl'] = 0
+                    self.open(sigOpen, 0)
+                    self.live['tp'] = self.stp
+                    self.live['sl'] = self.ssl
+                    self.futurClosed = NONE
+                    self.count_time = self.ticks.index[-1]
                 return
-            msg = 'norm' if signal == CLOSE else 'sltp' if signal == FCLOSE else ''
-            if signal > 3:
-                self.close_one(ls, signal, self.positions[0], True, msg)
-                self.count_time = None
         except Exception as e:
             print(f"err generale {self.live['name']}: {e}")
 
@@ -264,4 +279,16 @@ class PmxRkoStrategy(Strategy):
         print(f"{datetime.now()} {self.live['name']} Début de pmxRko {self.live['symbol']}")
         Strategy.lance(self)
 
+def decision_std(bricks, cfg):
+    try:
+        display = calculate_indicators(bricks, cfg)
+        display = choix_features(display, cfg)
+    except Exception as e:
+        print(f"decision err {e}")
+        raise e
+    if not 'sigc' in display.columns:
+        display['sigc'] = NONE
+    if not 'sigo' in display.columns:
+        display['sigo'] = NONE
+    return display
 

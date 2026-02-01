@@ -1,8 +1,8 @@
 {
   "parameters": {
-    "renko_size": 36.6,
-    "ema_period": 13,
-    "rsi_period": 17,
+    "renko_size": 24.2,
+    "ema_period": 8,
+    "rsi_period": 15,
     "rsi_high": 70,
     "rsi_low": 30,
     "macd": {
@@ -10,15 +10,15 @@
       "macd_slow": 26,
       "macd_signal": 9
     },
-    "threshold_buy": 0.55,
-    "threshold_sell": 0.4
+    "threshold_buy": 0.75,
+    "threshold_sell": 0.35000000000000003,
+    "close_buy": 0.57,
+    "close_sell": 0.43
   },
   "features": [
     "EMA",
     "RSI",
-    "MACD_hist",
-    "close",
-    "time_live"
+    "MACD_hist"
   ],
   "target": {
     "target_col": "close",
@@ -34,28 +34,45 @@
     "close_sens": true
   },
   "lstm": {
-    "lstm_seq_len": 24,
+    "lstm_seq_len": 120,
     "lstm_units": 48
   },
   "mlp": {
     "mlp_unit1": 256,
     "mlp_unit2": 0,
-    "mlp_dropout": 0.4,
+    "mlp_dropout": 0.30000000000000004,
     "mlp_lr": 0.001,
     "mlp_batch_size": 256,
     "mlp_patience": 10
   },
+  "xgb": {
+    "xgb_learning_rate": 0.05,
+    "xgb_max_depth": 8,
+    "xgb_n_estimators": 1000,
+    "xgb_subsample": 0.7,
+    "xgb_colsample_bytree": 0.7,
+    "xgb_early_stop_rounds": 50
+  },
+  "lgbm": {
+    "lgbm_learning_rate": 0.03,
+    "lgbm_num_leaves": 127,
+    "lgbm_n_estimators": 1000,
+    "lgbm_feature_fraction": 0.9,
+    "lgbm_bagging_fraction": 0.8,
+    "lgbm_min_child_samples": 20,
+    "lgbm_early_stop_rounds": 50
+  },
   "live": {
     "symbol": "ETHUSD",
     "version": [
-      "SIMPLE"
+      "LGBM"
     ],
-    "hcode": "22482b62e89b",
+    "hcode": "fb872284f89a",
     "timeframe": "1m",
     "volume": 1.0,
-    "sl": 30,
-    "tp": 40.0,
-    "magic": 125784,
+    "sl": 60,
+    "tp": 70,
+    "magic": 125788,
     "mt5_login": 203690,
     "mt5_password": "axa77Garp&",
     "mt5_server": "FusionMarkets-Demo",
