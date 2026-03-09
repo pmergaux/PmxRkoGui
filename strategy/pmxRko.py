@@ -5,7 +5,7 @@ import joblib
 import numpy as np
 import pandas as pd
 
-from train.trainer import lgbm_predict, xgb_predict, lstm_predict_model, mlp_predict
+from train.trainer import lgbm_predict, xgb_predict, lstm_predict_model, mlp_predict, prediction
 from utils.model_utils import create_sequences_numba, config_to_features, prepare_target_column
 from utils.scaler_utils import load_and_transform
 from .base import Strategy
@@ -86,7 +86,7 @@ class PmxRkoStrategy(Strategy):
 
     def decision_ai(self, trace=False):
         try:
-            features_cols, target_cols, _ = config_to_features(self.cfg)
+            features_cols, target_cols, total_cols = config_to_features(self.cfg)
             # if trace:                print("feat", features_cols, "tg", target_cols)
             df = self.display[-256:].copy()
             if not isinstance(target_cols, list):
@@ -100,31 +100,23 @@ class PmxRkoStrategy(Strategy):
                 return None
             if 'target' in df.columns:
                 target_cols = ['target']
+            df = df.dropna(subset=total_cols).copy()
             X_test = load_and_transform(self.scaler, df[features_cols])
             y_test = df[target_cols].to_numpy(dtype=np.float32)    # qu'importe le target_cols ?
             test_r = np.hstack([X_test, y_test])
             X_test_seq, _ = create_sequences_numba(test_r, self.cfg['lstm']['lstm_seq_len'], len(features_cols))
             # print("len Xseq", len(X_test_seq) if X_test_seq is not None else 'None', self.cfg['lstm']['lstm_seq_len'])
-            if 'LGBM' in self.version:
-                proba = lgbm_predict(self.model, X_test)
-            elif 'XGB' in self.version:
-                proba = xgb_predict(self.model, X_test)
-            elif 'LSTM' in self.version:
-                proba = lstm_predict_model(self.model, X_test_seq)
-            elif 'MLP' in self.version:
-                proba = mlp_predict(self.model, X_test)
-            else:
-                proba = self.model.predict(X_test_seq, verbose=0).flatten()
+            proba = prediction(self.version, self.model, X_test, X_test_seq)
         except BaseException as e:
             print(f"err prediction {self.version} ", e)
-
             return None
         # if trace:            print("pba", proba[-3:])
-        return proba[-3:]
+        return proba[-3:] if proba is not None else None
 
     def decision(self, trace=False):
         self.display = decision_std(self.bricks, self.cfg)
         jp = calculate_japonais(self.df)
+        """
         dc = self.display[['direction']].tail(3)
         sc = self.display[['sigc']].tail(3)
         so = self.display[['sigo']].tail(3)
@@ -136,6 +128,8 @@ class PmxRkoStrategy(Strategy):
        # if trace:            print(dd)            print(dj)
             # print sur une ligne             print(*dj['sigc'].to_list(), sep = '|')
         return dd, dj
+        """
+        return self.display, jp
 
     def TimeisOpen(self):
         now = datetime.now().time()
@@ -242,17 +236,17 @@ class PmxRkoStrategy(Strategy):
             ls = NONE
             if lp > 0:
                 ls = BUY if self.positions[0].type == MetaTrader5.POSITION_TYPE_BUY else SELL
-                if not self.TimeisOpen():
-                    self.close_one(ls, CLOSE, self.positions[0], True, "time")
-                    return
+                # if not self.TimeisOpen():
+                # self.close_one(ls, CLOSE, self.positions[0], True, "time")
+                # return
             sigClose, sigOpen = trading_decision(ls, self.positions[0].price_open if lp > 0 else 0.0,
                                       self.positions[0].price_current if lp > 0 else 0.0,
-                                      dd, dj, dai, self.ssl, self.stp,
+                                      dd.tail(3), dj.tail(3), dai, self.ssl, self.stp,
                                       self._param['threshold_buy'], self._param['threshold_sell'],
                                       self._param['close_buy'], self._param['close_sell'], True)
-            print('signaux', sigClose, sigOpen)
+            #print('signaux', sigClose, sigOpen)
             self.fopen = False
-            if not self.TimeisOpen():                 return
+            # if not self.TimeisOpen():                 return
             if lp > 0:
                 msg = 'norm' if sigClose == CLOSE else 'sltp' if sigClose == FCLOSE else ''
                 if sigClose > 3:
