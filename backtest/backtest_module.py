@@ -10,7 +10,7 @@ from train.trainer import (lstm_train_simple, lstm_train_ultra, lstm_predict_ult
                            lstm_train_model, lstm_predict_model, tft_train_predict_fast,
                            tft_train_predict, tft_to_proba, nbeats_train_predict,
                            mlp_train, mlp_predict,
-                           lgbm_train, lgbm_predict, xgb_train, xgb_predict)
+                           lgbm_train, lgbm_predict, xgb_train, xgb_predict, gru_train, prediction)
 
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'   # ← à mettre TOUT EN HAUT du fichier
 # 2. Optionnel mais recommandé : limite la verbosité de TF
@@ -40,6 +40,7 @@ from utils.model_utils import (scale_cols_only, assemble_with_targets,
 from decision.candle_decision import add_indicators, choix_features, calculate_indicators
 from decision.trading_decision import trading_decision  # ← ton add_indicators Numba parfait
 
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # =========================================================================
 # --- utilities
@@ -62,23 +63,28 @@ def decision(df, config):
 # ==================================================================
 # 4. BACKTEST RÉALISTE
 # ==================================================================
-def backtest(df_test, dj, proba, sl=60, tp=30, buy_thr=0.6, sell_thr=0.4,close_buy=0.53, close_sell=0.47):
+def backtest(df_test, dj, proba, sl=60, tp=30, buy_thr=0.6, sell_thr=0.4,close_buy=0.53, close_sell=0.47, trial=None):
     from utils.utils import NONE, BUY, SELL, CLOSE, FCLOSE
-    if proba is not None:
-        nn = len(proba)
-        n = len(df_test)
-        if n != nn:
-            print("longueurs p",nn, 'df', n)
-        if nn < n:
-            df = df_test.iloc[-nn:].copy()
+    try:
+        if proba is not None:
+            nn = len(proba)
+            n = len(df_test)
+            if n != nn:
+                print("longueurs p",nn, 'df', n)
+            if nn < n:
+                df = df_test.iloc[-nn:].copy()
+            else:
+                df = df_test.copy()
+            if nn > n:
+                proba = proba[-n:]
         else:
             df = df_test.copy()
-        if nn > n:
-            proba = proba[-n:]
-    else:
-        df = df_test.copy()
+    except BaseException as e:
+        print(f"err recalibrage {e}")
     pnl = []
-    pos = 0
+    pruning_step = len(df) // 5
+    for i in range(3, len(df)):
+        pos = 0
     entry_price = 0
     spread_dollar = 2.5  # spread en $
     for i in range(3, len(df)):
@@ -89,21 +95,34 @@ def backtest(df_test, dj, proba, sl=60, tp=30, buy_thr=0.6, sell_thr=0.4,close_b
         #print('time',time)
         #row = dj.index.get_loc(time)
         #print('row',row)
-        if proba is not None:
-            sigClose, sigOpen = trading_decision(pos, entry_price, close, df[i-3:i],None,   # dj[row-3:row],
-                                    proba[i-3:i], sl, tp, buy_thr, sell_thr, close_buy, close_sell)
-        else:
-            sigClose, sigOpen = trading_decision(pos, entry_price, close, df[i-3:i], None,    #dj[row-3:row],
-                                      None, sl, tp, buy_thr, sell_thr,close_buy, close_sell)
+        try:
+            # print(f"close {type(close)}, proba {type(proba)}")
+            if proba is not None:
+                sigClose, sigOpen = trading_decision(pos, entry_price, close, df[i-3:i],None,   # dj[row-3:row],
+                                        proba[i-3:i], sl, tp, buy_thr, sell_thr, close_buy, close_sell)
+            else:
+                sigClose, sigOpen = trading_decision(pos, entry_price, close, df[i-3:i], None,    #dj[row-3:row],
+                                          None, sl, tp, buy_thr, sell_thr,close_buy, close_sell)
+        except BaseException as e:
+            print(f"err appel decision {e}", "\n" ,pos, entry_price, close,"\n", df[i-3:i],"\n", proba[i-3:i],"\n", sl, tp, buy_thr, sell_thr, close_buy, close_sell)
+            sigOpen=sigClose=NONE
         # === GESTION POSITION ===
-        if pos != 0 and sigClose >= CLOSE:
+        if pos != 0 and sigClose > 3:
             # sortie forcée si signal neutre ou de sens opposé
             pnl.append(pos * (close - entry_price) - spread_dollar)
             pos = 0
         if pos == 0 and sigOpen != NONE:
             pos = sigOpen
             entry_price = close
-            continue
+        # --- AJOUT DU PRUNING ICI ---
+        if trial is not None and i % pruning_step == 0 and i > 0:
+            current_pnl = np.sum(pnl) if pnl else 0
+            step = i // pruning_step
+            trial.report(current_pnl, step=step)
+            if trial.should_prune():
+                print(f"✂️ Trial élagué à l'étape {step} (PNL actuel: {current_pnl:.2f})")
+                raise optuna.TrialPruned()
+                # -----------------------------
     # === Si on sort à la fin ===
     if pos != 0:
         final_close = df['close'].iloc[-1]
@@ -116,52 +135,38 @@ def backtest(df_test, dj, proba, sl=60, tp=30, buy_thr=0.6, sell_thr=0.4,close_b
     print(f"profit {np.sum(a):.2f} trades {len(a)} winner {np.sum(a > 0)} win rate {(np.sum(a > 0)/len(a)):.2%} moyenne {np.mean(a):.2f} écart type {np.std(a, ddof=1):.4f} "
           f" SL {sl} TP {tp}")
     sharpe = a.mean() * 1000 / a.std() * np.sqrt(365 * 390)   # calcul pour 390 renko/j. estimés
+    win_rate = np.sum(a > 0) / len(a)
     profit = np.sum(a)
-    result = {'score': sharpe, 'profit': profit, 'trades': len(a), 'winner': np.sum(a > 0), 'win_rate': (np.sum(a > 0) / len(a)), 'mean': np.mean(a), 'std': np.std(a, ddof=1)}
-    return sharpe, result
+    result = {'score': sharpe, 'profit': profit, 'trades': len(a), 'winner': np.sum(a > 0), 'win_rate': (win_rate), 'mean': np.mean(a), 'std': np.std(a, ddof=1)}
+    return profit, result
+
 
 # ==================================================================
-# 5. ÉVALUATION FINALE — LA VÉRITÉ
+# 5. ÉVALUATION FINALE — SAUVEGARDE DU CHAMPION UNIQUEMENT
 # ==================================================================
-def run_backtest(config_std, save_artifacts=False):
+def run_backtest(config_std, trial=None, best_score_so_far=-float('inf')):
     score = float('-inf')
+    model = None
     try:
-        # ← On charge les données ici, une fois par worker (ou même une fois globalement)
-        """
-        start_date = config['start_date']
-        end_date = config['end_date']
-        symbol = config['symbol']
-        start = datetime(*start_date)
-        end = datetime(*end_date)
-        base_name = f"../data/{symbol}_{start.strftime('%Y_%m_%d_%H_%M_%S')}_{end.strftime('%Y_%m_%d_%H_%M_%S')}.pkl"
-        df = reload_ticks_from_pickle(base_name, symbol, None, start, end)
-        if df is None or df.empty:
-            print("Pas de données → exit")
-            exit()
-        df['time'] = pd.to_datetime(df['time'])
-        """
         if config_std is None:
             raise Exception("no config no optim")
+
         try:
             df_renko = config_std['data']
         except BaseException as e:
             print("No data no optim", e)
             return score, {}
+
         del config_std['data']
-        #df = config['df']
-        #del config['df']
-        df = None
-        # 0. standardiser la config par exemple si on doit utiliser le hcode
         VERSION = config_std['live']['version']
+
         try:
-            # df_renko = add_indicators(df_renko, config_std["parameters"])
             df_renko = decision_std(df_renko, config_std)
-            if df_renko is None:
-                return score, {}
+            if df_renko is None: return score, {}
         except BaseException as e:
             print("err add indicators ", e)
             return score, {}
-        # inutile si decision seule
+
         seq_len = config_std['lstm'].get('seq_len', 24)
         units = config_std['lstm'].get('lstm_units', 48)
         thresh_buy = config_std['parameters'].get('threshold_buy', 0.6)
@@ -174,32 +179,26 @@ def run_backtest(config_std, save_artifacts=False):
         if close_sell < thresh_sell:
             close_sell = thresh_sell + 0.01
             config_std['parameters']['close_sell'] = close_sell
-        # les colonnes data, cible...
+        if config_std['parameters'].get('macd') is not None:
+            sig = config_std['parameters']['macd']['macd_signal']
+            shr = config_std['parameters']['macd']['macd_fast']
+            lnt = config_std['parameters']['macd']['macd_slow']
+            if sig > shr:
+                config_std['parameters']['macd']['macd_signal'] = sig+1
+            if sig + 6 > lnt:
+                config_std['parameters']['macd']['macd_slow'] = sig+6
         features_cols, target_cols, total_cols = config_to_features(config_std)
         config_std["features"] = features_cols
         renko_size = config_std['parameters']['renko_size']
-        # 1. Renko + indicateurs
-        """
-        try:
-            df_bricks = tick21renko(df, None, renko_size, 'bid')
-        except BaseException as e:
-            print("err create renko", e)
-            return score, {}
-        """
-        # 2. Features
+
         need_nn = any(vs in nn_servers for vs in VERSION)
         proba = None
         hcode = "default_hcode"
         target_col_sav = None
-        # print("Target col ", target_cols)
+        result = {}
         if need_nn:
             target_type = config_std['target'].get('target_type', 'direction')
-            try:
-                df_renko = prepare_target_column(df_renko, target_cols[0], target_type)
-            except BaseException as e:
-                print("config err target", e)
-                return score, {}
-
+            df_renko = prepare_target_column(df_renko, target_cols[0], target_type)
             if 'target' in df_renko.columns:
                 target_col_sav = target_cols
                 target_cols = ['target']
@@ -215,71 +214,78 @@ def run_backtest(config_std, save_artifacts=False):
                         tarc.append(col)
                     target_cols = tarc
             """
-            if len(df_renko) < seq_len*4:
-                print("pas assez de renko", len(df_renko))
-                return score, {}
-            config_std['target']['target_col'] = [target_cols[0]]     # on se limite à une seule cible
-            try:
-                hcode = config_to_hash(prepare_to_hashcode(config_std))
-                # print("hcode", hcode)
-                config_std['live']["hcode"] = hcode
-            except BaseException as e:
-                print("err hcode", e)
-            # 3. Split
+
+            hcode = config_to_hash(prepare_to_hashcode(config_std))
+            config_std['live']["hcode"] = hcode
+
+            # Split & Scale
+            df_renko = df_renko.dropna(subset=total_cols).copy()
             train_len = int(len(df_renko) * 0.65)
             val_len = int(len(df_renko) * 0.15)
             train_df = df_renko.iloc[:train_len]
             val_df = df_renko.iloc[train_len:train_len + val_len]
             test_df = df_renko.iloc[train_len + val_len:]
 
-            # 4. Scale
             X_scaler, X_train, X_val, X_test = scale_cols_only(train_df, val_df, test_df, features_cols)
-            if save_artifacts:
-                scaler_path = f"../models/scaler_{hcode}.pkl"
-                with (open(scaler_path, 'wb')) as f:
-                    pickle.dump(X_scaler, f)
-                print(f"Scaler saved to {scaler_path}")
 
-            if target_type == 'value':
-                y_scaler, y_train, y_val, y_test = scale_cols_only(train_df, val_df, test_df, target_cols)
-                if save_artifacts and y_scaler:
-                    scaler_y_path = f"../models/scaler_y_{hcode}.pkl"
-                    with (open(scaler_y_path, 'wb')) as f:
-                        pickle.dump(y_scaler, f)
-                    print(f"Y-Scaler saved to {scaler_y_path}")
-            else:
-                y_train = train_df[target_cols].to_numpy(dtype=np.float32)
-                y_val = val_df[target_cols].to_numpy(dtype=np.float32)
-                y_test = test_df[target_cols].to_numpy(dtype=np.float32)
+            y_train = train_df[target_cols].to_numpy(dtype=np.float32)
+            y_val = val_df[target_cols].to_numpy(dtype=np.float32)
+            y_test = test_df[target_cols].to_numpy(dtype=np.float32)
 
             train_r, val_r, test_r = assemble_with_targets(X_train, X_val, X_test, y_train, y_val, y_test)
             X_train_seq, y_train_seq = create_sequences_numba(train_r, seq_len, len(features_cols))
             X_val_seq, y_val_seq = create_sequences_numba(val_r, seq_len, len(features_cols))
             X_test_seq, _ = create_sequences_numba(test_r, seq_len, len(features_cols))
 
-            if len(X_train_seq) < 50:
-                return float('-inf'), {}
-
             test_return = test_df.iloc[-len(X_test):]
+# =============================================== verification NAN
+            """
+            # 1. Dès le début – état initial du DataFrame renko
+            print("NaN dans df_renko complet :", df_renko.isna().sum().sum())
+            print("Colonnes avec NaN :", df_renko.columns[df_renko.isna().any()].tolist())
 
-            model = None
+            # 2. Après le split (train/val/test)
+            print("\nAprès split:")
+            print(f"train_df NaN: {train_df.isna().sum().sum()}")
+            print(f"val_df   NaN: {val_df.isna().sum().sum()}")
+            print(f"test_df  NaN: {test_df.isna().sum().sum()}")
+
+            # 3. Après scaling → c'est souvent ICI que ça explose
+            print("\nAprès scale_cols_only:")
+            print(f"X_train NaN: {np.isnan(X_train).sum()}")
+            print(f"X_val   NaN: {np.isnan(X_val).sum()}")
+            print(f"X_test  NaN: {np.isnan(X_test).sum()}")
+
+            if np.isnan(X_train).any():
+                print("→ Features avec NaN après scaling :", np.any(np.isnan(X_train), axis=0))
+                # → montre quelles colonnes (index)
+
+            # 4. Après create_sequences_numba → très destructeur si NaN présents
+            print("\nAprès séquences:")
+            print(f"X_train_seq NaN: {np.isnan(X_train_seq).sum()}")
+            print(f"X_val_seq   NaN: {np.isnan(X_val_seq).sum()}")
+            print(f"X_test_seq  NaN: {np.isnan(X_test_seq).sum()}")
+            """
+# ==============================================
             if test_return is not None:
                 test_return = decision(test_return, config_std)
 
+            # --- Training ---
             for vs in VERSION:
-                # --- Model Training ---
-                if 'SIMPLE'==vs:
-                    model = lstm_train_simple(X_train_seq, y_train_seq, X_val_seq, y_val_seq, seq_len, len(features_cols), units)
-                elif 'ULTRA'==vs:
-                    model = lstm_train_ultra(X_train_seq, y_train_seq, X_val_seq, y_val_seq, units, seq_len, len(features_cols))
-                elif 'LSTM'==vs:
-                    model = lstm_train_model(X_train_seq, y_train_seq, X_val_seq, y_val_seq, units, seq_len, len(features_cols))
+                if vs not in ['SIMPLE', 'ULTRA', 'LSTM'] and seq_len > 96:
+                    config_std['lstm']['seq_len '] = 96
+                if 'SIMPLE' == vs:
+                    model = lstm_train_simple(X_train_seq, y_train_seq, X_val_seq, y_val_seq, seq_len,
+                                              len(features_cols), units)
+                elif 'ULTRA' == vs:
+                    model = lstm_train_ultra(X_train_seq, y_train_seq, X_val_seq, y_val_seq, units, seq_len,
+                                             len(features_cols))
+                elif 'LSTM' == vs:
+                    model = lstm_train_model(X_train_seq, y_train_seq, X_val_seq, y_val_seq, units, seq_len,
+                                             len(features_cols))
                 elif 'MLP' == vs:
                     mlp = config_std['mlp']
-                    model = mlp_train(X_train, y_train, X_val, y_val, len(features_cols),
-                                      units1=mlp['mlp_unit1'], units2=mlp['mlp_unit2'],
-                                      dropout=mlp['mlp_dropout'], lr=mlp['mlp_lr'],
-                                      batch_size=mlp['mlp_batch_size'], patience=mlp['mlp_patience'])
+                    model = mlp_train(X_train, y_train, X_val, y_val, len(features_cols), mlp)
                 elif 'LGBM' == vs:
                     try:
                         lgbm = config_std['lgbm']
@@ -289,78 +295,100 @@ def run_backtest(config_std, save_artifacts=False):
                     model = lgbm_train(np.asarray(X_train, dtype=np.float32), np.asarray(y_train, dtype=np.float32),
                                        np.asarray(X_val, dtype=np.float32), np.asarray(y_val, dtype=np.float32),
                                        learning_rate=lgbm['lgbm_learning_rate'], n_estimators=lgbm['lgbm_n_estimators'],
-                                       num_leaves=lgbm['lgbm_num_leaves'],feature_fraction=lgbm['lgbm_feature_fraction'],
-                                       min_child_samples=lgbm['lgbm_min_child_samples'],early_stop_rounds=lgbm['lgbm_early_stop_rounds'],
+                                       num_leaves=lgbm['lgbm_num_leaves'],
+                                       feature_fraction=lgbm['lgbm_feature_fraction'],
+                                       min_child_samples=lgbm['lgbm_min_child_samples'],
+                                       early_stop_rounds=lgbm['lgbm_early_stop_rounds'],
                                        bagging_fraction=lgbm['lgbm_bagging_fraction'])
+                elif 'GRU' == vs:
+                    try:
+                        gru = config_std['gru']
+                    except BaseException as e:
+                        print("No GRU")
+                        break
+                    model, _ = gru_train(X_train, y_train, X_val, y_val, gru)
                 elif 'XGB' == vs:
                     xgb = config_std['xgb']
                     model = xgb_train(X_train, y_train, X_val, y_val, learning_rate=xgb['xgb_learning_rate'],
-                                      max_depth=xgb['xgb_max_depth'],n_estimators=xgb['xgb_n_estimators'],
+                                      max_depth=xgb['xgb_max_depth'], n_estimators=xgb['xgb_n_estimators'],
                                       subsample=xgb['xgb_subsample'], colsample_bytree=xgb['xgb_colsample_bytree'],
                                       early_stop_rounds=xgb['xgb_early_stop_rounds'])
 
-                # --- Prediction & Saving ---
                 if model:
-                    if save_artifacts:
-                        path = f"../models/model_{hcode}"
-                        directory = os.path.dirname(path)
-                        if directory:
-                            os.makedirs(directory, exist_ok=True)
+                    proba = prediction(VERSION, model, X_test, X_test_seq)
+                    print(f"proba: {proba[-1]}")
+                else:
+                    return -9999, {}
+            # --- Backtest ---
+            score, result = backtest(test_return, None, proba, config_std['live']['sl'], config_std['live']['tp'],
+                                     thresh_buy, thresh_sell, close_buy, close_sell, trial)
+
+            # --- SAUVEGARDE SI RECORD BATTU ---
+            win_rate = result['win_rate']
+            profit = result['profit']
+            if profit > 0:
+                """
+                lock_dir = os.path.abspath(os.path.join(CURRENT_DIR,"save_model.lock"))
+                while True:
+                    try:
+                        # os.mkdir est atomique : si le dossier existe, il lève une erreur direct
+                        os.mkdir(lock_dir)
+                        break  # On a le verrou !
+                    except FileExistsError:
+                        time.sleep(0.1)  # On attend un peu et on réessaie
+                """
+                try:
+                    # --- Zone sécurisée ---
+                    best_score_so_far = -9999999
+                    control_path = os.path.abspath(os.path.join(CURRENT_DIR,"../best_score.json"))
+                    if os.path.exists(control_path):
+                        with open(control_path, 'r') as f:
+                            old_meta = json.load(f)
+                            best_score_so_far = old_meta.get('score', -9999999)
+                    # on compare
+                    if score > best_score_so_far:
+                        print(f"✨ NOUVEAU RECORD : {score:.3f} > {best_score_so_far:.3f}. Sauvegarde...")
+                        # on crée un fichier vide
+                        # 1. Sauvegarde du modèle      _{hcode}
+                        path = "../models/model_hcode"
                         if "XGB" in VERSION:
                             path = f"{path}.json"
                             model.save_model(path)
                         elif "LGBM" in VERSION:
-                            path = f"{path}.txt"
-                            save_model(model, path)
+                            #path = f"{path}.txt"
+                            save_model(model, path, 'lgbm')
                         else:
                             path = f"{path}.keras"
                             model.save(path)
                         print(f"Model saved to {path}")
-                        # If we are just saving, we don't need to predict and backtest
-                        # return 0, {'hcode': hcode}
 
-                    # Prediction logic
-                    try:
-                        if 'LGBM' in VERSION:
-                            proba = lgbm_predict(model, X_test)
-                        elif 'XGB' in VERSION:
-                            proba = xgb_predict(model, X_test)
-                        elif 'LSTM' in VERSION:
-                            proba = lstm_predict_model(model, X_test_seq)
-                        elif 'MLP' in VERSION:
-                            proba = mlp_predict(model, X_test)
-                        else:
-                            proba = model.predict(X_test_seq, verbose=0).flatten()
-                    except BaseException as e:
-                        print(f"err prediction {VERSION} ", e)
-                        proba = None
-                    del model
-                    break # Exit after first valid model is trained and used
-        else:
-            if not save_artifacts:
-                test_df = df_renko.iloc[-min(240, int(len(df_renko)*0.2)):]
-                test_return, df = decision_std(test_df, df, config_std)
-                proba = None
-
-        if save_artifacts:
-            print("Artifacts saved. Skipping backtest.")
-            #return 0, {'hcode': hcode}
-
-        # 7. Backtest réaliste
-        try:
-            score, result = backtest(test_return, df, proba, config_std['live']['sl'], config_std['live']['tp'],thresh_buy, thresh_sell, close_buy, close_sell)
-        except BaseException as e:
-            print("BT err ", e)
-            result = {}
-        if target_col_sav is not None:
-            config_std['target']['target_col'] = target_col_sav[0]
-        print(f"{VERSION} = {target_cols} | {renko_size:5.1f} | → Score {score:8.1f}")
-        result['config'] = config_std
+                        # 2. Sauvegarde du Scaler  _{hcode}
+                        scaler_path = "../models/scaler_hcode.pkl"
+                        with open(scaler_path, 'wb') as f:
+                            pickle.dump(X_scaler, f)
+                        print(f"Scaler saved to {scaler_path}")
+                        # 3. Sauvegarde de la Config   _{hcode}
+                        if target_col_sav is not None:
+                            config_std['target']['target_col'] = target_col_sav[0]
+                        with open("../config_hcode.json", 'w') as f:
+                            json.dump(config_std, f, indent=4)
+                        meta_data = {"score": score, "profit": result["profit"], "trades": result["trades"], "win_rate": result["win_rate"], "hcode":hcode, "version":VERSION}
+                        with open(control_path, 'w') as f:
+                            json.dump(meta_data, f)
+                        print(f"✅ Champion sauvegardé (HCODE: {hcode})")
+                        print(f"✅ Modèle sauvegardé par le processus {os.getpid()}")
+                finally:
+                    # On libère toujours le verrou, même si la sauvegarde plante
+                    """
+                    if os.path.exists(lock_dir):
+                        os.rmdir(lock_dir)
+                    """
         return score, result
-
     except Exception as e:
         print("ERREUR →", e)
-        return score, {}
+        return -9999, {}
     finally:
+        if model is not None:
+            del model
         tf.keras.backend.clear_session()
         gc.collect()
