@@ -1,82 +1,91 @@
 {
-  "parameters": {
-    "renko_size": 24.2,
-    "ema_period": 8,
-    "rsi_period": 15,
-    "rsi_high": 70,
-    "rsi_low": 30,
-    "macd": {
-      "macd_fast": 12,
-      "macd_slow": 26,
-      "macd_signal": 9
+    "parameters": {
+        "renko_size": 19.0,
+        "ema_period": 8,
+        "rsi_period": 16,
+        "rsi_high": 70,
+        "rsi_low": 30,
+        "macd": {
+            "macd_fast": 10,
+            "macd_slow": 15,
+            "macd_signal": 9
+        },
+        "threshold_buy": 0.55,
+        "threshold_sell": 0.2,
+        "close_buy": 0.51,
+        "close_sell": 0.43
     },
-    "threshold_buy": 0.75,
-    "threshold_sell": 0.35000000000000003,
-    "close_buy": 0.57,
-    "close_sell": 0.43
-  },
-  "features": [
-    "EMA",
-    "RSI",
-    "MACD_hist"
-  ],
-  "target": {
-    "target_col": "close",
-    "target_type": "direction",
-    "target_include": false
-  },
-  "open_rules": {
-    "rule_ema": true,
-    "rule_rsi": true,
-    "rule_macd": true
-  },
-  "close_rules": {
-    "close_sens": true
-  },
-  "lstm": {
-    "lstm_seq_len": 120,
-    "lstm_units": 48
-  },
-  "mlp": {
-    "mlp_unit1": 256,
-    "mlp_unit2": 0,
-    "mlp_dropout": 0.30000000000000004,
-    "mlp_lr": 0.001,
-    "mlp_batch_size": 256,
-    "mlp_patience": 10
-  },
-  "xgb": {
-    "xgb_learning_rate": 0.05,
-    "xgb_max_depth": 8,
-    "xgb_n_estimators": 1000,
-    "xgb_subsample": 0.7,
-    "xgb_colsample_bytree": 0.7,
-    "xgb_early_stop_rounds": 50
-  },
-  "lgbm": {
-    "lgbm_learning_rate": 0.03,
-    "lgbm_num_leaves": 127,
-    "lgbm_n_estimators": 1000,
-    "lgbm_feature_fraction": 0.9,
-    "lgbm_bagging_fraction": 0.8,
-    "lgbm_min_child_samples": 20,
-    "lgbm_early_stop_rounds": 50
-  },
-  "live": {
-    "symbol": "ETHUSD",
-    "version": [
-      "LGBM"
+    "features": [
+        "time_live",
+        "diff_close",
+        "diff_rsi",
+        "diff_macd"
     ],
-    "hcode": "fb872284f89a",
-    "timeframe": "1m",
-    "volume": 1.0,
-    "sl": 60,
-    "tp": 70,
-    "magic": 125788,
-    "mt5_login": 203690,
-    "mt5_password": "axa77Garp&",
-    "mt5_server": "FusionMarkets-Demo",
-    "name": "pmxRKO",
-    "lot_size": 1.0
-  }
+    "target": {
+        "target_col": "diff_ema",
+        "target_type": "direction",
+        "target_include": false
+    },
+    "open_rules": {
+        "rule_ema": true,
+        "rule_rsi": true,
+        "rule_macd": true
+    },
+    "close_rules": {
+        "close_sens": true
+    },
+    "lstm": {
+        "lstm_seq_len": 24,
+        "lstm_units": 144
+    },
+    "mlp": {
+        "mlp_unit1": 128,
+        "mlp_unit2": 0,
+        "mlp_dropout": 0.5,
+        "mlp_lr": 0.001,
+        "mlp_batch_size": 256,
+        "mlp_patience": 10
+    },
+    "xgb": {
+        "xgb_learning_rate": 0.05,
+        "xgb_max_depth": 6,
+        "xgb_n_estimators": 1000,
+        "xgb_subsample": 0.9,
+        "xgb_colsample_bytree": 0.7,
+        "xgb_early_stop_rounds": 50
+    },
+    "lgbm": {
+        "lgbm_learning_rate": 0.1,
+        "lgbm_num_leaves": 31,
+        "lgbm_n_estimators": 1000,
+        "lgbm_feature_fraction": 0.9,
+        "lgbm_bagging_fraction": 0.9,
+        "lgbm_min_child_samples": 5,
+        "lgbm_early_stop_rounds": 20
+    },
+    "gru": {
+        "gru_units1": 64,
+        "gru_units2": 16,
+        "gru_lr": 0.0086,
+        "gru_dropout": 0.30000000000000004,
+        "batch_size": 128,
+        "gru_patience": 10
+    },
+    "live": {
+        "symbol": "ETHUSD",
+        "version": [
+            "MLP"
+        ],
+        "sl": 48,
+        "tp": 60,
+        "lot_size": 1.0,
+        "timeframe": "1m",
+        "volume": 1.0,
+        "magic": 125788,
+        "mt5_login": 203690,
+        "mt5_password": "axa77Garp&",
+        "mt5_server": "FusionMarkets-Demo",
+        "name": "pmxRKO",
+        "hcode": "2f40c857faa5"
+    }
 }
