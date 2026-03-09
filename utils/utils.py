@@ -28,7 +28,11 @@ cmd2 = ('on', 'off')
 
 pd.options.mode.copy_on_write = True
 
-
+DIRBUYCLOSE = 5
+DIRSELLCLOSE = -5
+EMABUYCLOSE = 4
+EMASELLCLOSE = -4
+PROBANEUTRE = 5
 BUY_STOP = 3
 BUY_CONT = 2
 BUY = 1
@@ -139,6 +143,17 @@ def to_number(x, strict=False):
         return int(x) if x.isdigit() else float(x)
     except:
         return None if strict else x
+
+def safe_format(value, fmt=".2f"):
+    if isinstance(value, (list, tuple, np.ndarray)):
+        if len(value) == 1:
+            value = value[0]  # extrait le scalaire si liste singleton
+        else:
+            value = np.mean(value)  # ou np.median, ou value[0], au choix
+    if isinstance(value, (int, float, np.number)):
+        return f"{{:{fmt}}}".format(value)
+    else:
+        return str(value)  # fallback
 
 # ===========================================================================================
 # Fonction pour parser les plages depuis les args (format: start,stop,step)
