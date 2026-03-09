@@ -8,6 +8,7 @@ from tensorflow.python.keras import Sequential
 from tensorflow.keras.models import Model, Sequential
 from tensorflow.keras.layers import Input, LSTM, Dropout, Dense, MultiHeadAttention, LayerNormalization, GlobalAveragePooling1D
 from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.layers import GRU, BatchNormalization
 
 import pandas as pd
 from sklearn.metrics import accuracy_score, f1_score, roc_auc_score, log_loss
@@ -36,8 +37,7 @@ tf.config.set_visible_devices([], 'GPU')
 # Un réseau de neurones simple, mais souvent très efficace et beaucoup
 # plus rapide à entraîner qu'un LSTM. Il ne prend pas en compte l'ordre
 # des séquences, mais regarde l'ensemble des features d'un instant 't'.
-#
-
+# =========================================================================
 def mlp_predict(model, X_test):
     """Prédiction des probabilités (classe positive)"""
     return model.predict(X_test, verbose=0).flatten()
@@ -47,53 +47,52 @@ def mlp_clear(model):
     del model
     tf.keras.backend.clear_session()
 
-def mlp_train(X_train, y_train, X_val, y_val, features_len,
-              units1=128, units2=64, dropout=0.3,
-              lr=0.001, batch_size=256, patience=10):
+def mlp_train(X_train, y_train, X_val, y_val, features_len, mlp):
     """
     Entraîne un MLP simple pour signaux de trading.
     Données NON séquencées (features plates).
     """
     start_time = time.time()
     print("Démarrage entraînement MLP...")
-
     layers = []
-    layers.append(tf.keras.layers.Dense(units1, activation='relu'))
-    layers.append(tf.keras.layers.Dropout(dropout))
-    if units2 > 0:  # permet de supprimer la 2e couche
-        layers.append(tf.keras.layers.Dense(units2, activation='relu'))
-        layers.append(tf.keras.layers.Dropout(dropout))
+    layers.append(tf.keras.layers.Dense(mlp['mlp_unit1'], activation='swish'))  # Swish au lieu de Relu
+    layers.append(tf.keras.layers.BatchNormalization())  # Ajout stabilité
+    layers.append(tf.keras.layers.Dropout(mlp['mlp_dropout']))
+    if mlp['mlp_unit2'] > 0:  # permet de supprimer la 2e couche
+        layers.append(tf.keras.layers.Dense(mlp['mlp_unit2'], activation='swish'))  # Swish au lieu de Relu
+        layers.append(tf.keras.layers.BatchNormalization())  # Ajout stabilité
+        layers.append(tf.keras.layers.Dropout(mlp['mlp_dropout']))
     layers.append(tf.keras.layers.Dense(1, activation='sigmoid'))
     model = tf.keras.Sequential([
         tf.keras.Input(shape=(features_len,)),
         *layers
     ])
-    optimizer = tf.keras.optimizers.Adam(learning_rate=lr)
+    optimizer = tf.keras.optimizers.Adam(learning_rate=mlp['mlp_lr'])
     model.compile(optimizer=optimizer,
                   loss='binary_crossentropy',
                   metrics=['accuracy'])
     early_stopping = tf.keras.callbacks.EarlyStopping(
         monitor='val_loss',      # bonne métrique
-        patience=patience,             # attends 10 epochs sans amélioration
+        patience=mlp['mlp_patience'],             # attends 10 epochs sans amélioration
         restore_best_weights=True,  # récupère les meilleurs poids
         verbose=0
     )
     model.fit(X_train, y_train,
               validation_data=(X_val, y_val),
               epochs=200,           # on met haut, early stopping gère
-              batch_size=batch_size,
+              batch_size=mlp['mlp_batch_size'],
               callbacks=[early_stopping],
               verbose=0)
     print(f"MLP entraîné en {(time.time() - start_time):.1f}s")
-    print(f"Meilleure val_loss atteinte à l'epoch {early_stopping.stopped_epoch - 9 if early_stopping.stopped_epoch > 0 else 'toutes'}")
+    print(f"Meilleure val_loss atteinte à l'epoch {early_stopping.stopped_epoch}")  # - 9 if early_stopping.stopped_epoch > 0 else 'toutes'}")
     return model
-
+# =========================================================================
 # --- MODÈLE 2 : LightGBM - Le champion de la vitesse et de la performance ---
 #
 # Un modèle basé sur les arbres de décision (Gradient Boosting).
 # Extrêmement rapide et souvent plus performant que les réseaux de neurones
 # sur des données "tabulaires" comme les vôtres.
-#
+# =========================================================================
 def lgbm_predict(model, X_test):
     """Prédiction sans warning"""
     # Si X_test est un DataFrame, on garde les noms de colonnes
@@ -127,12 +126,12 @@ def lgbm_clear(model):
     del model
 
 def lgbm_train(X_train, y_train, X_val, y_val,
-               learning_rate=0.05,
+               learning_rate=0.1,
                num_leaves=31,
                n_estimators=1000,
-               feature_fraction=0.8,
-               bagging_fraction=0.8,
-               min_child_samples=20,
+               feature_fraction=0.9,
+               bagging_fraction=0.9,
+               min_child_samples=5,
                early_stop_rounds=20):
     """
     Entraîne LightGBM avec paramètres variables pour optimisation.
@@ -154,29 +153,38 @@ def lgbm_train(X_train, y_train, X_val, y_val,
         'verbose': -1,
         'n_jobs': -1,
         'random_state': 42,
-        'feature_name': 'ignore'
-        #'seed': 42
+        'importance_type': 'gain',  # Plus pertinent pour le trading que le 'split' par défaut
+        'min_gain_to_split': 0,  # Évite de créer des branches pour des gains insignifiants
+        'max_bin': 255,  # Standard, mais peut être réduit à 63 pour accélérer l'optuna
+        #'is_unbalance': True,
+        # 'seed': 42
     }
+    # Forcez la déconnexion totale de Pandas juste avant le fit
     model = lgb.LGBMClassifier(**params)
+    X_train_clean = np.array(X_train)
+    X_val_clean = np.array(X_val)
+    # print(f"LGB y {y_train.mean()}")
     model.fit(
-        X_train, y_train.ravel(),
-        eval_set=[(X_val, y_val.ravel())],
+        X_train_clean, y_train.ravel(),
+        eval_set=[(X_val_clean, y_val.ravel())],
         eval_metric='auc',
         callbacks=[lgb.early_stopping(early_stop_rounds, verbose=False)]
     )
+    # SOLUTION ICI : On supprime la trace des noms de colonnes
+    model._feature_name_ = None
     best_iter = model.best_iteration_
     print(f"LightGBM entraîné en {(time.time() - start_time):.1f}s | "
           f"best iteration = {best_iter if best_iter else n_estimators}")
-
+    if best_iter < 5:
+        return None
     return model
-
-
+# ==========================================================================
 # --- MODÈLE 3 : XGBoost - L'autre grand champion du Gradient Boosting ---
 #
 # Très similaire à LightGBM, c'est son concurrent direct. Il est parfois
 # un peu moins rapide mais peut donner des résultats légèrement différents
 # ou meilleurs selon les données.
-#
+# =========================================================================
 def xgb_predict(model, X_test):
     """Prédiction des probabilités de la classe positive"""
     proba = model.predict_proba(X_test)[:, 1]
@@ -212,6 +220,8 @@ def xgb_train(X_train, y_train, X_val, y_val,
         'random_state': 42,                  # remplace 'seed' déprécié
         'tree_method': 'hist',               # rapide sur CPU
         'verbosity': 0,                        # équivalent verbose=-1
+        'min_child_weight': 1,
+        'gamma': 0,
         'early_stopping_rounds' : early_stop_rounds,  # ← maintenant accepté ici
     }
     model = xgb.XGBClassifier(**params)
@@ -222,12 +232,18 @@ def xgb_train(X_train, y_train, X_val, y_val,
         verbose=False
     )
     best_iter = model.best_iteration
+    bestI = best_iter + 1 if best_iter is not None else n_estimators
     print(f"XGBoost entraîné en {(time.time() - start_time):.1f}s | "
-          f"best iteration = {best_iter + 1 if best_iter is not None else n_estimators}")
+          f"best iteration = {bestI}")
+    if bestI < 5:
+        return None
     return model
-
+# =========================================================================
+# ------- Modèle 4 LSTM ULTRA
+# =========================================================================
 def lstm_predict_ultra(model, X_test):
-    proba = model.predict(X_test, verbose=0).flatten()
+    raw = model.predict(X_test, verbose=0)
+    proba = raw.squeeze().flatten()  # tue les dimensions inutiles
     return proba
 
 def lstm_train_ultra(X_train, y_train, X_val, y_val, units, seq_len, features_len):
@@ -242,7 +258,9 @@ def lstm_train_ultra(X_train, y_train, X_val, y_val, units, seq_len, features_le
     model.fit(X_train, y_train, validation_data=(X_val, y_val), epochs=5, verbose=0)
     print(f"lstm ultra {(time.time()-start):.0f}")
     return model
-
+# =========================================================================
+# ----------------- Modèle 5 LSTM normal
+# =========================================================================
 # ---------- LSTM AMÉLIORÉ (le seul qui marche vraiment en trading) ----------
 def lstm_predict_model(model, X_test):
     proba_lstm = model.predict(X_test, verbose=0).flatten()
@@ -264,8 +282,32 @@ def lstm_train_model(X_train, y_train, X_val, y_val, units, seq_len, features_le
     model.fit(X_train, y_train, validation_data=(X_val, y_val), epochs=30, batch_size=32, verbose=0)
     print(f"lstm model {(time.time()-start):.0f}")
     return model
-# ================== LSTM ULTRA-SIMPLE MAIS QUI GAGNE ==================
+# =========================================================================
+# ================== LSTM SIMPLE MAIS QUI GAGNE ==================
+# =========================================================================
+# Amélioration du LSTM Simple
 def lstm_train_simple(X_tr, y_tr, X_va, y_va, seq, feats, units=96):
+    start = time.time()
+    try:
+        model = tf.keras.Sequential([
+            tf.keras.Input(shape=(seq, feats)),
+            tf.keras.layers.GaussianNoise(0.01),  # Ajoute du "bruit" pour éviter l'overfitting
+            tf.keras.layers.LSTM(units, return_sequences=True),
+            tf.keras.layers.LayerNormalization(),  # Mieux que Batchnorm pour les RNN
+            tf.keras.layers.LSTM(units // 2),
+            tf.keras.layers.Dense(1, activation='sigmoid')
+        ])
+        model.compile(optimizer='adam', loss='binary_crossentropy')
+        model.fit(X_tr, y_tr, validation_data=(X_va, y_va), epochs=35,
+                  batch_size=64, verbose=0)
+        print(f"lstm simple {(time.time() - start):.0f}")
+        return model
+    except BaseException as e:
+        print(f"lstm simple err : {e}")
+    return None
+
+
+def lstm_train_simple_v1(X_tr, y_tr, X_va, y_va, seq, feats, units=96):
     start = time.time()
     try:
         model = tf.keras.Sequential([
@@ -280,8 +322,93 @@ def lstm_train_simple(X_tr, y_tr, X_va, y_va, seq, feats, units=96):
         print(f"lstm simple {(time.time() - start):.0f}")
         return model
     except BaseException as e:
-        print("lstm simple err :", e)
+        print(f"lstm simple err : {e}")
     return None
+# =========================================================================
+# ------ modèle GRU
+# =========================================================================
+
+def build_gru_model_base(input_shape):
+    model = Sequential([
+        # Première couche GRU (retourne des séquences pour la suivante)
+        GRU(64, return_sequences=True, input_shape=input_shape),
+        BatchNormalization(),
+        Dropout(0.2),
+
+        # Deuxième couche GRU (ne retourne que le dernier état)
+        GRU(32, return_sequences=False),
+        Dropout(0.2),
+
+        # Couche dense pour la décision finale
+        Dense(16, activation='relu'),
+        Dense(1, activation='sigmoid')  # Pour votre classification binaire
+    ])
+
+    model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['AUC'])
+    return model
+
+def build_gru_model(input_shape, params):
+    """
+    Construit le modèle GRU en utilisant les paramètres suggérés par Optuna.
+    """
+    model = Sequential([
+        Input(shape=input_shape),
+        # Couche 1 : On utilise 'units_l1' suggéré par Optuna
+        GRU(params['gru_units1'], return_sequences=True),
+        BatchNormalization(),
+        Dropout(params['gru_dropout']),
+        # Couche 2 : On utilise 'units_l2'
+        GRU(params['gru_units2'], return_sequences=False),
+        Dropout(params['gru_dropout']),
+        # Couche dense intermédiaire
+        Dense(params['gru_units2'] // 2, activation='relu'),
+        # Sortie
+        Dense(1, activation='sigmoid')
+    ])
+
+    # On injecte le learning rate suggéré par Optuna
+    optimizer = Adam(learning_rate=params['gru_lr'])
+    model.compile(optimizer=optimizer, loss='binary_crossentropy', metrics=['auc'])
+    return model
+
+def gru_train(X_train, y_train, X_val, y_val, params):
+    start = time.time()
+    # 1. Construction (Utilise l'input_shape détecté automatiquement)
+    # X_train.shape[1] = Time Steps (ex: 10 bougies)
+    # X_train.shape[2] = Features (ex: 5 indicateurs)
+    # Transformation rapide de (samples, features) vers (samples, 1, features)
+    X_train_3d = X_train.reshape((X_train.shape[0], 1, X_train.shape[1]))
+    X_val_3d = X_val.reshape((X_val.shape[0], 1, X_val.shape[1]))
+
+    # Maintenant input_shape sera (1, nombre_de_features)
+    input_shape = (X_train_3d.shape[1], X_train_3d.shape[2])
+
+    model = build_gru_model(input_shape, params)  # On passe les suggestions Optuna ici
+
+    # 2. Callbacks pour éviter l'overfitting (équivalent early_stopping de LGBM)
+    early_stop = tf.keras.callbacks.EarlyStopping(
+        monitor='val_auc',
+        patience=params['gru_patience'],
+        restore_best_weights=True,
+        mode='max'
+    )
+
+    # 3. L'ENTRAÎNEMENT (Le "Train")
+    history = model.fit(
+        X_train_3d, y_train,
+        validation_data=(X_val_3d, y_val),
+        epochs=100,
+        batch_size=params['batch_size'],
+        callbacks=[early_stop],
+        verbose=0
+    )
+    print(f"GRU {(time.time() - start):.0f}")
+    return model, history
+
+# 4. LA PRÉDICTION (Le "Predict")
+# Pour prédire, on fait simplement :
+# preds = model.predict(X_test)
+
 # ============== TEMPORAL FUSION TRANSFORMER (le roi 2025) ===========
 def tft_train_predict_fast(train_df, val_df, test_df, features_cols, target_cols):
     start = time.time()
@@ -948,4 +1075,48 @@ def recalculate_pnl(df_bt, signal_col='final_signal'):
     print(f"\n=== SIGNAL HYBRIDE ===")
     print(f"PNL: {df['cum_pnl'].iloc[-1]:+.2%} | Sharpe: {sharpe:.2f}")
     return df
+# ===================#################################################
+# =========================  Les predictions
+# =================########################
+def prediction(VERSION, model, X_test, X_test_seq=None):
+    """
+    Problème principal : confusion X_test vs X_test_seq + conditions LSTM dupliquées
+    """
+    if model is None:
+        print(f"Modèle None pour {VERSION}")
+        return None
 
+    #print(f"[pred] {VERSION:12s} | X_test {X_test.shape if X_test is not None else '—'} | seq {X_test_seq.shape if X_test_seq is not None else '—'}")
+
+    proba = None
+    try:
+        if any(k in VERSION for k in ['LGBM', 'LIGHTGBM']):
+            proba = lgbm_predict(model, X_test)
+        elif 'XGB' in VERSION:
+            proba = xgb_predict(model, X_test)
+        elif 'MLP' in VERSION:
+            proba = mlp_predict(model, X_test)
+        elif 'GRU' in VERSION:
+            X_in = X_test if X_test.ndim == 3 else X_test.reshape(-1, 1, X_test.shape[-1])
+            proba = model.predict(X_in, verbose=0).ravel()
+        elif 'LSTM' in VERSION or 'ULTRA' in VERSION:
+            if X_test_seq is None or len(X_test_seq) == 0:
+                raise ValueError("X_test_seq requis pour LSTM/Ultra")
+            if 'ULTRA' in VERSION:
+                proba = lstm_predict_ultra(model, X_test_seq)
+            else:
+                proba = lstm_predict_model(model, X_test_seq)
+        else:
+            # fallback : on essaie séquence si disponible, sinon flat
+            input_data = X_test_seq if (X_test_seq is not None and X_test_seq.ndim == 3) else X_test
+            proba = model.predict(input_data, verbose=0).flatten()
+
+        if proba is not None:
+            proba = np.asarray(proba).ravel()  # uniformise
+            proba = np.clip(proba, 0.001, 0.999)
+
+    except Exception as e:
+        print(f"→ ÉCHEC {VERSION}: {e.__class__.__name__} → {str(e)[:180]}")
+        # traceback.print_exc()   # décommente en debug
+
+    return proba
