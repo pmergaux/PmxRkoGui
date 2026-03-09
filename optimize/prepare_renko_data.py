@@ -22,6 +22,16 @@ end_date = None
 
 TICKS_NPY_PATH = f"../data/{SYMBOL}_ticks_optimized.npy"
 
+def ajout_japonaises(df_ticks):
+    # ajout d'une DT rates'
+    with (open(TICKS_NPY_PATH, 'wb')) as file:
+        pickle.dump(df_ticks, file)
+    df = ticks2rates(df_ticks, '1m', 'bid')
+    df = calculate_japonais((df))
+    filename = f"../data/df_{SYMBOL}.pkl"
+    with (open(filename, 'wb'))as file:
+        pickle.dump(df, file)
+
 def prepare_ticks_once():
     print("Préparation du fichier ticks optimisé (une seule fois)...")
     start = start_date
@@ -55,15 +65,7 @@ def prepare_ticks_once():
 
     np.save(TICKS_NPY_PATH, arr)
     print(f"Fichier créé : {TICKS_NPY_PATH} → {os.path.getsize(TICKS_NPY_PATH) / 1024 ** 3:.2f} GB")
-    """
-    with (open(TICKS_NPY_PATH, 'wb')) as file:
-        pickle.dump(df_ticks, file)
-    df = ticks2rates(df_ticks, '1m', 'bid')
-    df = calculate_japonais((df))
-    filename = f"../data/df_{symbol}.pkl"
-    with (open(filename, 'wb'))as file:
-        pickle.dump(df, file)
-    """
+    # ajout_japonaises(df_ticks)
     del df_ticks
     return True
 
@@ -120,7 +122,7 @@ def create_renko_file(renko_size):
 if __name__ == "__main__":
     #global end_date, start_date
     end_date = datetime.now().replace(hour=23, minute=30, second=0, microsecond=0)
-    start_date = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=75)
+    start_date = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=300)
     # prepare les ticks
     if prepare_ticks_once():
         # Crée le dossier de cache s'il n'existe pas
