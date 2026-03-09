@@ -4,6 +4,10 @@ from ta import trend, volatility, momentum
 
 # ------------------------------------------------------------ calcul compilé
 from numba import njit   # prange n'est plus utilisé ici
+
+diff_col = ['diff_close','diff_ema', 'diff_rsi', 'diff_cci', 'diff_macd', 'diff_atr']
+signal_col = ['signal_ema', 'signal_rsi', 'signal_macd', 'signal_cci', 'signal_atr']
+
 @njit(cache=True, fastmath=True)  # <-- Retrait de parallel=True
 def compute_indicators_pure_numba(
         close: np.ndarray,
@@ -189,11 +193,19 @@ def calculate_stoch_rsi(rsi, period=14):
     rsi_max = rsi.rolling(period).max()
     return (rsi - rsi_min) / (rsi_max - rsi_min)
 
-def calculate_time_live(df):
+
+def calculate_time_live(df, cfg):
+    # 1. Calcul de base
     df['time_diff'] = df['time'].diff().dt.total_seconds().fillna(0)
-    df['volatility'] = (df['high'] - df['low']) / df['close']
-    df['time_live'] = df['volatility'] / (df['time_diff'] + 1e-6)  # évite / par zéro
-    # effectuer dans clean_features df['time_live'] = df['time_live'].replace([np.inf, -np.inf], 0).fillna(0)
+    # 2. Volatilité "Augmentée" (incluant le slippage réel)
+    # abs(close - closer) capture l'impulsion finale au-delà de la brique
+    volatilite_reelle = (abs(df['close'] - df['close_renko']) + cfg['parameters']['renko_size']) / df['close']
+    # 3. Calcul de la vélocité
+    df['time_live'] = volatilite_reelle / (df['time_diff'] + 1e-6)
+    # 4. Compression logarithmique (L'astuce du curieux)
+    df['time_live'] = np.log1p(df['time_live'])
+    # Nettoyage final
+    df['time_live'] = df['time_live'].replace([np.inf, -np.inf], 0).fillna(0)
     return df
 
 def calculate_japonais(df: pd.DataFrame):
@@ -226,39 +238,41 @@ def calculate_indicators(df : pd.DataFrame, config: dict) -> pd.DataFrame:
         df['bb_lband'] = df['bb_mavg'] - 2 * df['bb_std']
     #    df['bb_max'] = df['bb_mavg'] + param.get('niveau', 0.9) * df['bb_std']
     #    df['bb_min'] = df['bb_mavg'] - param.get('niveau', 0.9) * df['bb_std']
-
-        if 'EMA' in features:
+        target_col = config["target"]["target_col"]
+        if not isinstance(target_col, list):
+            target_col = [target_col]
+        if 'EMA' in features or "EMA" in target_col or 'diff_ema' in features or 'diff_ema' in target_col:
             df['EMA'] = trend.EMAIndicator(df['close'], window=param.get('ema_period', 9)).ema_indicator()
-        if 'RSI' in features:
+        if 'RSI' in features or 'RSI' in target_col or 'diff_rsi' in features or 'diff_rsi' in target_col:
             df['RSI'] = momentum.RSIIndicator(df['close'], window=param.get('rsi_period', 14)).rsi()
-        if 'MACD_line' in features or 'MACD_hist' in features:
+        if 'MACD_hist' in features or "MACD_hist" in target_col or 'diff_macd' in features or 'diff_macd' in target_col:
             pmacd = param.get('macd', {"macd_fast":12, "macd_slow": 26, "macd_signal": 9})
             macd = trend.MACD(df['close'], window_fast=pmacd["macd_fast"], window_slow=pmacd["macd_slow"], window_sign=pmacd["macd_signal"])
             df['MACD_line'] = macd.macd()
             df['MACD_signal'] = macd.macd_signal()
             df['MACD_hist'] = macd.macd_diff()
-        if 'ATR' in features:
+        if 'ATR' in features or 'ATR' in target_col or 'diff_atr' in features or 'diff_atr' in target_col:
             df['ATR'] = volatility.AverageTrueRange(df['high'], df['low'], df['close'], window=param.get('atr_period', 14)).average_true_range()
         if 'Stoch_RSI' in features:
             df['Stoch_RSI'] = momentum.StochRSIIndicator(df['close'], window=param.get('stochRsi_period', 14)).stochrsi()
         if 'Williams_R' in features:
             df['Williams_R'] = momentum.WilliamsRIndicator(df['high'], df['low'], df['close'], lbp=param.get('williamsR_period',14)).williams_r()
-        if 'CCI' in features:
+        if 'CCI' in features or 'CCI' in target_col or 'diff_cci' in features or 'diff_cci' in target_col:
             df['CCI'] = trend.CCIIndicator(df['high'], df['low'], df['close'], window=param.get('cci_period', 14)).cci()
         if 'time_live' in features:
-            df = calculate_time_live(df)
+            df = calculate_time_live(df, config)
         #print(f"Colonnes après direction_openr_closer: {df.columns.tolist()}")
         return df.dropna()   #.reset_index(drop=True)
     except BaseException as e:
         print(f"Erreur dans calculate_indicators: {e}")
         raise "Erreur dans calculate_indicators"
 
-
 def choix_features(df: pd.DataFrame, cfg: dict):
     features = cfg['features']
     open_rules = cfg['open_rules']
     close_rules = cfg["close_rules"]
     param = cfg["parameters"]
+    target = cfg["target"]
     rsi_high = param.get('rsi_high', 70)
     rsi_low = param.get('rsi_low', 30)
     s_rsi_high = param.get('s_rsi_high', 0.8)
@@ -274,40 +288,57 @@ def choix_features(df: pd.DataFrame, cfg: dict):
     # distinguer close et close_renko ne sert à rien puisque pour les renko close est défini avec open et close
     """
     df['direction'] = np.where(df['close'] > df['open'], 1, np.where(df['open'] > df['close'], -1, 0))
+    df['diff_close'] = (df['close'] - df['close'].shift(1))/df['close'].shift(1)
     buy_cond = (df['direction'] == 1)
     sell_cond = (df['direction'] == -1)
-    if 'EMA' in features and open_rules['rule_ema']:
-        buy_cond  &= (df['close'] > df['EMA'].shift(1))
-        sell_cond &= (df['close'] < df['EMA'].shift(1))
-    if 'RSI' in features and open_rules['rule_rsi']:
-        buy_cond &= (df['RSI'] < rsi_high)
-        sell_cond &= (df['RSI'] > rsi_low)
-    if 'MACD_hist' in features and open_rules['rule_macd']:
-        buy_cond &= (df['MACD_line'] > df['MACD_signal'])
-        sell_cond &= (df['MACD_line'] < df['MACD_signal'])
-    if 'Stoch_RSI' in features and open_rules.get('stk_rsi',False):
+    df['sigc'] = 0
+    if "EMA" in df.columns:
+        buy_local  = ((df['close'] > df['EMA']) & (df['EMA'] >= df['EMA'].shift(1)))
+        sell_local = ((df['close'] < df['EMA']) & (df['EMA'] <= df['EMA'].shift(1)))
+        df['signal_ema'] = np.select([buy_local, sell_local], [1, -1], default=0)
+        df['diff_ema'] = (df['EMA'] - df['close'])/df['close']
+    if "RSI" in df.columns:
+        buy_local = (df['RSI'] < rsi_low)
+        sell_local = (df['RSI'] > rsi_high)
+        df['signal_rsi'] = np.select([buy_local, sell_local], [1, -1], default=0)
+        df['diff_rsi'] = (df['RSI'] - 50)/50
+    if "MACD_hist" in df.columns:
+        df['signal_macd'] = np.where(df['MACD_hist'] > 0, 1, np.where(df['MACD_hist'] < 0 , -1, 0))
+        df['diff_macd'] = df['MACD_hist']
+    if 'Stoch_RSI' in df.columns:
         buy_cond &= (df['Stoch_RSI'] < s_rsi_low)
         sell_cond &= (df['Stoch_RSI'] > s_rsi_high)
-    if 'ATR' in features and open_rules.get('atr', False):
-        buy_cond &= (df['ATR'] > df['ATR'].mean())
-        sell_cond &= (df['ATR'] < df['ATR'].mean())
-    if 'Williams_R' in features and open_rules.get('wr', False):
+    if 'ATR' in df.columns:
+        buy_local = (df['ATR'] > df['ATR'].mean())
+        sell_local = (df['ATR'] < df['ATR'].mean())
+        df['signal_atr'] = np.select([buy_local, sell_local], [1, -1], default=0)
+        df['diff_atr'] = (df['ATR'] - df['ATR'].mean())/df['ATR'].mean()
+    if 'Williams_R' in df.columns:
         buy_cond &= (df['Williams_R'] < williams_low)
         sell_cond &= (df['Williams_R'] > williams_high)
-    if 'CCI' in features and open_rules.get('cci', False):
-        buy_cond &= (df['CCI'] < cci_low)
-        sell_cond &= (df['CCI'] > cci_high)
-    df['sigc'] = 0
-    """
-    clos_cond = ((df['direction'] == 1) & (df['close'] < df['EMA'])) | \
-                ((df['direction'] == -1) & (df['close'] > df['EMA']))
-    df['sigc'] = np.where(clos_cond, 5, 0) if close_rules.get("close_ema", False) else 0
-    """
-    clos_cond = ((df['direction'] != df['direction'].shift(1)) & (df['sigc'] == 0))
-    df['sigc'] = np.where(clos_cond, 4, df['sigc']) if close_rules.get("close_sens", False) else 0
-    df['sigo'] = np.where(buy_cond, 1, np.where(sell_cond, -1, 0))
-    df.loc[df.index[-1], 'sigc'] = 0
-    df.loc[df.index[-1], 'sigo'] = 0
-    # NOTA le dernière ligne contient des valeurs temporaires
+    if 'CCI' in df.columns:
+        buy_local = (df['CCI'] < cci_low)
+        sell_local = (df['CCI'] > cci_high)
+        df['signal_cci'] = np.select([buy_local, sell_local], [1, -1], default=0)
+        df['diff_cci'] = df['CCI'] / 200
+    if close_rules.get("close_sens", False):
+        #clos_cond = ((df['direction'] != df['direction'].shift(1)))   #la direction actuelle avec la précédente
+        #df['sigc'] = np.select([clos_cond & df['sigc']==0], [4*df['direction']], default=df['sigc'])
+        clos_cond = (df['sigc'] == 0)  # toujours vraie donc sigc remplace direction
+        df['sigc'] = np.select([clos_cond], [df['direction']], default=df['sigc'])
+    first = True
+    # une valeur par défaut
+    opening_cond = (df['direction'] != 0)   # donc toujours vraie
+    df['sigo'] = 0
+    for col in signal_col:
+        if first:
+            if not col in df.columns:
+                continue
+            df['sigo'] = df[col]
+            opening_cond = (df[col] != 0)
+            first = False
+            continue
+        if col in df.columns:
+            opening_cond &= ((df[col] == 0) | (df[col] == df['sigo']))
+    df['sigo'] = np.where(opening_cond, 1 * df['sigo'], 0)
     return df
-
