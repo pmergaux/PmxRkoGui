@@ -83,8 +83,7 @@ def backtest(df_test, dj, proba, sl=60, tp=30, buy_thr=0.6, sell_thr=0.4,close_b
         print(f"err recalibrage {e}")
     pnl = []
     pruning_step = len(df) // 5
-    for i in range(3, len(df)):
-        pos = 0
+    pos = 0
     entry_price = 0
     spread_dollar = 2.5  # spread en $
     for i in range(3, len(df)):
@@ -134,11 +133,16 @@ def backtest(df_test, dj, proba, sl=60, tp=30, buy_thr=0.6, sell_thr=0.4,close_b
         return -999999, {}
     print(f"profit {np.sum(a):.2f} trades {len(a)} winner {np.sum(a > 0)} win rate {(np.sum(a > 0)/len(a)):.2%} moyenne {np.mean(a):.2f} écart type {np.std(a, ddof=1):.4f} "
           f" SL {sl} TP {tp}")
-    sharpe = a.mean() * 1000 / a.std() * np.sqrt(365 * 390)   # calcul pour 390 renko/j. estimés
+    #len(df) = nombre de renko, pour estimated au pif en regardant l'écran mais on pourrait aussi calculer le nombre de jour depuis df['time']
+    #estimated_renko_per_day = 16
+    #trade_par_an = len(a) / (len(df) / estimated_renko_per_day) * 365
+    nb_jours = 1 + (df['time'].iloc[-1] - df['time'].iloc[0]).days
+    trades_par_an = len(a) * 365 / nb_jours
+    sharpe = a.mean() * 1000  * np.sqrt(trades_par_an) / a.std()
     win_rate = np.sum(a > 0) / len(a)
     profit = np.sum(a)
     result = {'score': sharpe, 'profit': profit, 'trades': len(a), 'winner': np.sum(a > 0), 'win_rate': (win_rate), 'mean': np.mean(a), 'std': np.std(a, ddof=1)}
-    return profit, result
+    return sharpe, result
 
 
 # ==================================================================
@@ -167,7 +171,7 @@ def run_backtest(config_std, trial=None, best_score_so_far=-float('inf')):
             print("err add indicators ", e)
             return score, {}
 
-        seq_len = config_std['lstm'].get('seq_len', 24)
+        seq_len = config_std['lstm'].get('lstm_seq_len', 24)
         units = config_std['lstm'].get('lstm_units', 48)
         thresh_buy = config_std['parameters'].get('threshold_buy', 0.6)
         thresh_sell = config_std['parameters'].get('threshold_sell', 0.4)
@@ -198,7 +202,7 @@ def run_backtest(config_std, trial=None, best_score_so_far=-float('inf')):
         result = {}
         if need_nn:
             target_type = config_std['target'].get('target_type', 'direction')
-            df_renko = prepare_target_column(df_renko, target_cols[0], target_type)
+            df_renko = prepare_target_column(df_renko, target_cols[0], target_type).reset_index(drop=True)
             if 'target' in df_renko.columns:
                 target_col_sav = target_cols
                 target_cols = ['target']
@@ -225,7 +229,10 @@ def run_backtest(config_std, trial=None, best_score_so_far=-float('inf')):
             train_df = df_renko.iloc[:train_len]
             val_df = df_renko.iloc[train_len:train_len + val_len]
             test_df = df_renko.iloc[train_len + val_len:]
-
+            min_len = min(len(train_df), len(val_df), len(test_df))
+            if seq_len >= min_len:
+                print(f"⚠️ seq_len={seq_len} trop grand vs min split={min_len} → trial élagué")
+                raise optuna.TrialPruned()
             X_scaler, X_train, X_val, X_test = scale_cols_only(train_df, val_df, test_df, features_cols)
 
             y_train = train_df[target_cols].to_numpy(dtype=np.float32)
@@ -236,6 +243,10 @@ def run_backtest(config_std, trial=None, best_score_so_far=-float('inf')):
             X_train_seq, y_train_seq = create_sequences_numba(train_r, seq_len, len(features_cols))
             X_val_seq, y_val_seq = create_sequences_numba(val_r, seq_len, len(features_cols))
             X_test_seq, _ = create_sequences_numba(test_r, seq_len, len(features_cols))
+            X_train_seq, y_train_seq = create_sequences_numba(train_r, seq_len, len(features_cols))
+            if len(X_train_seq) == 0:
+                print(f"⚠️ Aucune séquence générée (seq_len={seq_len}, train={len(train_r)})")
+                raise optuna.TrialPruned()
 
             test_return = test_df.iloc[-len(X_test):]
 # =============================================== verification NAN
@@ -273,7 +284,7 @@ def run_backtest(config_std, trial=None, best_score_so_far=-float('inf')):
             # --- Training ---
             for vs in VERSION:
                 if vs not in ['SIMPLE', 'ULTRA', 'LSTM'] and seq_len > 96:
-                    config_std['lstm']['seq_len '] = 96
+                    config_std['lstm']['lstm_seq_len '] = 96
                 if 'SIMPLE' == vs:
                     model = lstm_train_simple(X_train_seq, y_train_seq, X_val_seq, y_val_seq, seq_len,
                                               len(features_cols), units)
@@ -306,7 +317,7 @@ def run_backtest(config_std, trial=None, best_score_so_far=-float('inf')):
                     except BaseException as e:
                         print("No GRU")
                         break
-                    model, _ = gru_train(X_train, y_train, X_val, y_val, gru)
+                    model, _ = gru_train(X_train_seq, y_train_seq, X_val_seq, y_val_seq, gru)
                 elif 'XGB' == vs:
                     xgb = config_std['xgb']
                     model = xgb_train(X_train, y_train, X_val, y_val, learning_rate=xgb['xgb_learning_rate'],
