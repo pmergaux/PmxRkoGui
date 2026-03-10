@@ -148,6 +148,11 @@ soit y avec -1 si on veut symchroniser sinon on anticipe y par rapport à X
 """
 @njit(fastmath=True)
 def create_sequences_numba(data: np.ndarray, seq_len: int, n_features: int, horizon: int = 0):
+    n_samples = len(data) - seq_len - horizon + 1
+    if n_samples <= 0:  # ← garde-fou
+        return (np.empty((0, seq_len, n_features), dtype=np.float32),
+                np.empty((0, 1), dtype=np.float32))
+
     n_samples = len(data) - seq_len - horizon + 1   # nombre d'échantillons
     n_targets = data.shape[1] - n_features  # nombre total de colonnes - celles des features = nombre colonnes target
 
