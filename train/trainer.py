@@ -4,7 +4,6 @@ import time
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras.layers import Dense
-from tensorflow.python.keras import Sequential
 from tensorflow.keras.models import Model, Sequential
 from tensorflow.keras.layers import Input, LSTM, Dropout, Dense, MultiHeadAttention, LayerNormalization, GlobalAveragePooling1D
 from tensorflow.keras.optimizers import Adam
@@ -12,12 +11,14 @@ from tensorflow.keras.layers import GRU, BatchNormalization
 
 import pandas as pd
 from sklearn.metrics import accuracy_score, f1_score, roc_auc_score, log_loss
-from sklearn.preprocessing import StandardScaler
-from sklearn.preprocessing import MinMaxScaler
+#from sklearn.preprocessing import StandardScaler
+#from sklearn.preprocessing import MinMaxScaler
 import lightgbm as lgb
 import xgboost as xgb
-from typing import List, Tuple, Dict
-from numba import njit, prange
+#from typing import List, Tuple, Dict
+#from numba import njit, prange
+#from tensorflow.python.profiler.profiler_client import monitor
+
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'   # ← à mettre TOUT EN HAUT du fichier
 # 2. Optionnel mais recommandé : limite la verbosité de TF
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # 0=all, 1=no info, 2=no warning, 3=error only
@@ -254,8 +255,9 @@ def lstm_train_ultra(X_train, y_train, X_val, y_val, units, seq_len, features_le
         tf.keras.layers.Dense(1, activation='sigmoid')
     ])
     model.compile(optimizer='adam', loss='binary_crossentropy')
+    es = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True, verbose=0)
     # print("train model", X_train.shape, y_train.shape, X_val.shape, y_val.shape)
-    model.fit(X_train, y_train, validation_data=(X_val, y_val), epochs=5, verbose=0)
+    model.fit(X_train, y_train, validation_data=(X_val, y_val), epochs=100, callbacks=[es], verbose=0)
     print(f"lstm ultra {(time.time()-start):.0f}")
     return model
 # =========================================================================
@@ -263,8 +265,7 @@ def lstm_train_ultra(X_train, y_train, X_val, y_val, units, seq_len, features_le
 # =========================================================================
 # ---------- LSTM AMÉLIORÉ (le seul qui marche vraiment en trading) ----------
 def lstm_predict_model(model, X_test):
-    proba_lstm = model.predict(X_test, verbose=0).flatten()
-    proba = (proba_lstm + 1) / 2  # tanh → [0,1]
+    proba = model.predict(X_test, verbose=0).flatten()
     return proba
 
 def lstm_train_model(X_train, y_train, X_val, y_val, units, seq_len, features_len, dropout=0.2):
@@ -276,9 +277,9 @@ def lstm_train_model(X_train, y_train, X_val, y_val, units, seq_len, features_le
         tf.keras.layers.LSTM(units // 2),
         tf.keras.layers.Dropout(dropout),
         tf.keras.layers.Dense(32, activation='relu'),
-        tf.keras.layers.Dense(1, activation='tanh')  # ← tanh mieux que sigmoid pour direction
+        tf.keras.layers.Dense(1, activation='sigmoid')  # ← tanh mieux que sigmoid pour direction
     ])
-    model.compile(optimizer=tf.keras.optimizers.Adam(1e-3), loss='huber', metrics=['mae'])
+    model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['AUC'])
     model.fit(X_train, y_train, validation_data=(X_val, y_val), epochs=30, batch_size=32, verbose=0)
     print(f"lstm model {(time.time()-start):.0f}")
     return model
@@ -298,7 +299,8 @@ def lstm_train_simple(X_tr, y_tr, X_va, y_va, seq, feats, units=96):
             tf.keras.layers.Dense(1, activation='sigmoid')
         ])
         model.compile(optimizer='adam', loss='binary_crossentropy')
-        model.fit(X_tr, y_tr, validation_data=(X_va, y_va), epochs=35,
+        es = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=8, restore_best_weights=True, verbose=0)
+        model.fit(X_tr, y_tr, validation_data=(X_va, y_va), epochs=100, callbacks=[es],
                   batch_size=64, verbose=0)
         print(f"lstm simple {(time.time() - start):.0f}")
         return model
@@ -306,24 +308,6 @@ def lstm_train_simple(X_tr, y_tr, X_va, y_va, seq, feats, units=96):
         print(f"lstm simple err : {e}")
     return None
 
-
-def lstm_train_simple_v1(X_tr, y_tr, X_va, y_va, seq, feats, units=96):
-    start = time.time()
-    try:
-        model = tf.keras.Sequential([
-            tf.keras.Input(shape=(seq, feats)),
-            tf.keras.layers.LSTM(units, return_sequences=True),
-            tf.keras.layers.LSTM(units // 2),
-            tf.keras.layers.Dense(1, activation='sigmoid')
-        ])
-        model.compile(optimizer='adam', loss='binary_crossentropy')
-        model.fit(X_tr, y_tr, validation_data=(X_va, y_va), epochs=35,
-                  batch_size=64, verbose=0)
-        print(f"lstm simple {(time.time() - start):.0f}")
-        return model
-    except BaseException as e:
-        print(f"lstm simple err : {e}")
-    return None
 # =========================================================================
 # ------ modèle GRU
 # =========================================================================
