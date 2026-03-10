@@ -88,13 +88,13 @@ def objective(trial):
             "xgb_early_stop_rounds": 50
         },
         "lgbm": {
-            "lgbm_learning_rate": 0.1, # trial.suggest_categorical('lgbm_learning_rate', [0.01, 0.03, 0.05]),
-            "lgbm_num_leaves": 31, # trial.suggest_categorical('lgbm_num_leaves', [31, 63, 127]),
+            "lgbm_learning_rate": trial.suggest_categorical('lgbm_learning_rate', [0.01, 0.03, 0.05]),
+            "lgbm_num_leaves": trial.suggest_categorical('lgbm_num_leaves', [31, 63, 127]),
             "lgbm_n_estimators": 1000,
-            "lgbm_feature_fraction": 0.9, #trial.suggest_categorical('lgbm_feature_fraction', [0.7, 0.8, 0.9]),
-            "lgbm_bagging_fraction": 0.9, #trial.suggest_categorical('lgbm_bagging_fraction', [0.7, 0.8, 0.9]),
-            "lgbm_min_child_samples": 5, #trial.suggest_categorical('lgbm_min_child_samples', [20, 50]),
-            "lgbm_early_stop_rounds": 20 #trial.suggest_categorical('lgbm_early_stop_rounds', [20, 50]),
+            "lgbm_feature_fraction": trial.suggest_categorical('lgbm_feature_fraction', [0.7, 0.8, 0.9]),
+            "lgbm_bagging_fraction": trial.suggest_categorical('lgbm_bagging_fraction', [0.7, 0.8, 0.9]),
+            "lgbm_min_child_samples": trial.suggest_categorical('lgbm_min_child_samples', [20, 50]),
+            "lgbm_early_stop_rounds": trial.suggest_categorical('lgbm_early_stop_rounds', [20, 50]),
         },
         "gru":{
             "gru_units1": trial.suggest_int("gru_units1", 32, 128, step=32),    # Puissance de la 1ère couche
