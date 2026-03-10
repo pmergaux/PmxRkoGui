@@ -213,8 +213,8 @@ class LiveChart(QWidget):
                 })
 
         if 'sigc' in df.columns:
-            clos_5 = df[df['sigc'] == 5]
-            clos_4 = df[df['sigc'] == 4]
+            clos_5 = df[(df['sigc'] == 5) | (df['sigc'] == -5)]
+            clos_4 = df[(df['sigc'] == 4) | (df['sigc'] == -4)]
             colorc = 'purple' if not sigcChanged and t==self.lastTime else 'pink'
             """
             clos_6 = df[df['sigc'] == 6]
