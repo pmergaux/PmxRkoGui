@@ -1,0 +1,107 @@
+{
+    "pmxRKO": {
+        "period": {
+            "date_start": "2025-09-29",
+            "date_end": "2025-11-13"
+        },
+        "parameters": {
+            "renko_size": {
+                "values": [
+                    10.0,
+                    15.0,
+                    20.0,
+                    25.0,
+                    30.0
+                ],
+                "type": "range",
+                "source": "10-30-5"
+            },
+            "ema_period": {
+                "values": [
+                    9
+                ],
+                "type": "list",
+                "source": "9"
+            },
+            "rsi_period": {
+                "values": [
+                    14
+                ],
+                "type": "list",
+                "source": "14"
+            }
+        },
+        "threshold_buy": {
+            "values": [
+                0.6
+            ],
+            "type": "list",
+            "source": "0.6"
+        },
+        "threshold_sell": {
+            "values": [
+                0.4
+            ],
+            "type": "list",
+            "source": "0.4"
+        },
+        "lstm": {
+            "lstm_seq_len": {
+                "values": [
+                    30,
+                    60,
+                    90
+                ],
+                "type": "list",
+                "source": "30,60,90"
+            },
+            "lstm_units": {
+                "values": [
+                    50.0,
+                    60.0,
+                    70.0,
+                    80.0,
+                    90.0,
+                    100.0
+                ],
+                "type": "range",
+                "source": "50-100-10"
+            }
+        },
+        "features": [
+            "EMA",
+            "RSI",
+            "MACD_line",
+            "",
+            "",
+            "time_live"
+        ],
+        "target": {
+            "target_col": "close",
+            "target_type": "Direction",
+            "target_include": false
+        },
+        "open_rules": {
+            "rule_ema": false,
+            "rule_rsi": false,
+            "rule_macd": false
+        },
+        "close_rules": {
+            "close_ema": false,
+            "close_sens": false
+        },
+        "live": {
+            "symbol": "ETHUSD",
+            "timeframe": "1m",
+            "volume": 1.0,
+            "sl": 30,
+            "tp": 40.0,
+            "magic": 125784,
+            "mt5_login": 203690,
+            "mt5_password": "axa77Garp&",
+            "mt5_server": "FusionMarkets-Demo",
+            "name": "pmxRKO",
+            "lot_size": 1.0
+        }
+    }
+}

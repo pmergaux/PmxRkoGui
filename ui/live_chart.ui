@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>live_tab</class>
+ <widget class="QWidget" name="live_tab">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>361</width>
+    <height>861</height>
+   </rect>
+  </property>
+  <property name="minimumSize">
+   <size>
+    <width>0</width>
+    <height>0</height>
+   </size>
+  </property>
+  <layout class="QVBoxLayout" name="main_layout">
+   <item>
+    <layout class="QHBoxLayout">
+     <item>
+      <widget class="QPushButton" name="btn_start">
+       <property name="styleSheet">
+        <string>background:#006400;color:white;font-weight:bold;padding:10px;</string>
+       </property>
+       <property name="text">
+        <string>LANCER LE LIVE</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="btn_stop">
+       <property name="styleSheet">
+        <string>background:#8B0000;color:white;font-weight:bold;padding:10px;</string>
+       </property>
+       <property name="text">
+        <string>STOP</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="status_label">
+       <property name="styleSheet">
+        <string>color:orange;font-weight:bold;</string>
+       </property>
+       <property name="text">
+        <string>Statut : En attente...</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <layout class="QVBoxLayout" name="view">
+     <property name="minimumSize" stdset="0">
+      <size>
+       <width>0</width>
+       <height>500</height>
+      </size>
+     </property>
+    </layout>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

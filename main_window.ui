@@ -1,0 +1,1449 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>MainWindow</class>
+ <widget class="QMainWindow" name="MainWindow">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>1013</width>
+    <height>701</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>PmxRenkoTrader</string>
+  </property>
+  <property name="unifiedTitleAndToolBarOnMac">
+   <bool>true</bool>
+  </property>
+  <widget class="QWidget" name="centralwidget">
+   <widget class="QTabWidget" name="optimization_tab">
+    <property name="enabled">
+     <bool>true</bool>
+    </property>
+    <property name="geometry">
+     <rect>
+      <x>20</x>
+      <y>10</y>
+      <width>821</width>
+      <height>571</height>
+     </rect>
+    </property>
+    <property name="accessibleName">
+     <string/>
+    </property>
+    <property name="accessibleDescription">
+     <string/>
+    </property>
+    <property name="currentIndex">
+     <number>0</number>
+    </property>
+    <widget class="QWidget" name="configuration_tab">
+     <property name="enabled">
+      <bool>true</bool>
+     </property>
+     <attribute name="title">
+      <string>Configuration</string>
+     </attribute>
+     <widget class="QWidget" name="formLayoutWidget">
+      <property name="geometry">
+       <rect>
+        <x>0</x>
+        <y>0</y>
+        <width>201</width>
+        <height>471</height>
+       </rect>
+      </property>
+      <layout class="QFormLayout" name="formLayout">
+       <property name="labelAlignment">
+        <set>Qt::AlignCenter</set>
+       </property>
+       <item row="0" column="0" colspan="2">
+        <widget class="QLabel" name="label">
+         <property name="text">
+          <string>Paramètres du trading</string>
+         </property>
+         <property name="alignment">
+          <set>Qt::AlignCenter</set>
+         </property>
+        </widget>
+       </item>
+       <item row="1" column="0">
+        <widget class="QLabel" name="tailleDesRenkoLabel">
+         <property name="text">
+          <string>Taille des Renko</string>
+         </property>
+        </widget>
+       </item>
+       <item row="1" column="1">
+        <widget class="QLineEdit" name="tailleDesRenkoLineEdit"/>
+       </item>
+       <item row="2" column="0">
+        <widget class="QLabel" name="ema_periodLabel">
+         <property name="text">
+          <string>ema période</string>
+         </property>
+        </widget>
+       </item>
+       <item row="2" column="1">
+        <widget class="QLineEdit" name="ema_periodLineEdit"/>
+       </item>
+       <item row="3" column="0">
+        <widget class="QLabel" name="rsi_periodLabel">
+         <property name="text">
+          <string>rsi période</string>
+         </property>
+        </widget>
+       </item>
+       <item row="3" column="1">
+        <widget class="QLineEdit" name="rsi_periodLineEdit"/>
+       </item>
+       <item row="4" column="0">
+        <widget class="QLabel" name="macdFastLabel">
+         <property name="text">
+          <string>macd fast</string>
+         </property>
+        </widget>
+       </item>
+       <item row="4" column="1">
+        <widget class="QLineEdit" name="macdFastLineEdit"/>
+       </item>
+       <item row="5" column="0">
+        <widget class="QLabel" name="macdSlowLabel">
+         <property name="text">
+          <string>macd slow</string>
+         </property>
+        </widget>
+       </item>
+       <item row="5" column="1">
+        <widget class="QLineEdit" name="macdSlowLineEdit"/>
+       </item>
+       <item row="6" column="0">
+        <widget class="QLabel" name="macdSignalLabel">
+         <property name="text">
+          <string>macd signal</string>
+         </property>
+        </widget>
+       </item>
+       <item row="6" column="1">
+        <widget class="QLineEdit" name="macdSignalLineEdit"/>
+       </item>
+       <item row="7" column="0">
+        <widget class="QLabel" name="cciPeriodLabel">
+         <property name="text">
+          <string>cci période</string>
+         </property>
+        </widget>
+       </item>
+       <item row="7" column="1">
+        <widget class="QLineEdit" name="cciPeiodLineEdit"/>
+       </item>
+       <item row="8" column="0">
+        <widget class="QLabel" name="williansRPeriodeLabel">
+         <property name="text">
+          <string>willians R periode</string>
+         </property>
+        </widget>
+       </item>
+       <item row="8" column="1">
+        <widget class="QLineEdit" name="williansRPeriodeLineEdit"/>
+       </item>
+       <item row="9" column="0">
+        <widget class="QLabel" name="lSTMSequenceLenLabel">
+         <property name="text">
+          <string>LSTM sequence len</string>
+         </property>
+        </widget>
+       </item>
+       <item row="9" column="1">
+        <widget class="QLineEdit" name="lSTMSequenceLenLineEdit"/>
+       </item>
+       <item row="10" column="0">
+        <widget class="QLabel" name="lSTMUnitsLabel">
+         <property name="text">
+          <string>LSTM units</string>
+         </property>
+        </widget>
+       </item>
+       <item row="10" column="1">
+        <widget class="QLineEdit" name="lSTMUnitsLineEdit"/>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="formLayoutWidget_2">
+      <property name="geometry">
+       <rect>
+        <x>250</x>
+        <y>0</y>
+        <width>551</width>
+        <height>122</height>
+       </rect>
+      </property>
+      <layout class="QFormLayout" name="formLayout_2">
+       <property name="rowWrapPolicy">
+        <enum>QFormLayout::WrapLongRows</enum>
+       </property>
+       <item row="0" column="1">
+        <widget class="QLabel" name="indicators_form">
+         <property name="maximumSize">
+          <size>
+           <width>16777215</width>
+           <height>10</height>
+          </size>
+         </property>
+         <property name="text">
+          <string>Choix des indicateurs</string>
+         </property>
+         <property name="alignment">
+          <set>Qt::AlignCenter</set>
+         </property>
+        </widget>
+       </item>
+       <item row="1" column="1">
+        <layout class="QGridLayout" name="gridLayout">
+         <item row="0" column="0">
+          <widget class="QComboBox" name="comboBox">
+           <property name="maximumSize">
+            <size>
+             <width>100</width>
+             <height>16777215</height>
+            </size>
+           </property>
+           <property name="sizeIncrement">
+            <size>
+             <width>10</width>
+             <height>0</height>
+            </size>
+           </property>
+           <item>
+            <property name="text">
+             <string/>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>EMA</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>RSI</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>MACD_line</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>CCI</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>StochRsi</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>Williams R</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>LSTM</string>
+            </property>
+           </item>
+          </widget>
+         </item>
+         <item row="0" column="1">
+          <widget class="QComboBox" name="comboBox_8">
+           <property name="maximumSize">
+            <size>
+             <width>100</width>
+             <height>16777215</height>
+            </size>
+           </property>
+           <item>
+            <property name="text">
+             <string/>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>RSI</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>MACD_line</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>CCI</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>StochRsi</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>Williams R</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>LSTM</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>EMA</string>
+            </property>
+           </item>
+          </widget>
+         </item>
+         <item row="0" column="2">
+          <widget class="QComboBox" name="comboBox_9">
+           <property name="maximumSize">
+            <size>
+             <width>100</width>
+             <height>16777215</height>
+            </size>
+           </property>
+           <item>
+            <property name="text">
+             <string/>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>MACD_line</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>CCI</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>StochRsi</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>Williams R</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>LSTM</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>EMA</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>RSI</string>
+            </property>
+           </item>
+          </widget>
+         </item>
+         <item row="0" column="3">
+          <widget class="QComboBox" name="comboBox_10">
+           <property name="maximumSize">
+            <size>
+             <width>100</width>
+             <height>16777215</height>
+            </size>
+           </property>
+           <item>
+            <property name="text">
+             <string/>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>CCI</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>StochRsi</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>Williams R</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>LSTM</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>EMA</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>RSI</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>MACD_line</string>
+            </property>
+           </item>
+          </widget>
+         </item>
+         <item row="1" column="0">
+          <widget class="QComboBox" name="comboBox_11">
+           <property name="maximumSize">
+            <size>
+             <width>100</width>
+             <height>16777215</height>
+            </size>
+           </property>
+           <item>
+            <property name="text">
+             <string/>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>StochRsi</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>Williams R</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>LSTM</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>EMA</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>RSI</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>MACD_line</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>CCI</string>
+            </property>
+           </item>
+          </widget>
+         </item>
+         <item row="1" column="1">
+          <widget class="QComboBox" name="comboBox_12">
+           <property name="maximumSize">
+            <size>
+             <width>100</width>
+             <height>16777215</height>
+            </size>
+           </property>
+           <item>
+            <property name="text">
+             <string/>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>Williams R</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>LSTM</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>EMA</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>RSI</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>MACD_line</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>CCI</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>StochRsi</string>
+            </property>
+           </item>
+          </widget>
+         </item>
+         <item row="1" column="2">
+          <widget class="QComboBox" name="comboBox_13">
+           <property name="maximumSize">
+            <size>
+             <width>100</width>
+             <height>16777215</height>
+            </size>
+           </property>
+           <item>
+            <property name="text">
+             <string/>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>LSTM</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>EMA</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>RSI</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>MACD_line</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>CCI</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>StochRsi</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>Williams R</string>
+            </property>
+           </item>
+          </widget>
+         </item>
+         <item row="1" column="3">
+          <widget class="QCheckBox" name="time_live">
+           <property name="text">
+            <string>time live</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="formLayoutWidget_3">
+      <property name="geometry">
+       <rect>
+        <x>250</x>
+        <y>130</y>
+        <width>551</width>
+        <height>241</height>
+       </rect>
+      </property>
+      <layout class="QFormLayout" name="formLayout_3">
+       <property name="rowWrapPolicy">
+        <enum>QFormLayout::WrapLongRows</enum>
+       </property>
+       <item row="0" column="1">
+        <widget class="QLabel" name="indicators_form_2">
+         <property name="maximumSize">
+          <size>
+           <width>16777215</width>
+           <height>10</height>
+          </size>
+         </property>
+         <property name="text">
+          <string>Features' model</string>
+         </property>
+         <property name="alignment">
+          <set>Qt::AlignCenter</set>
+         </property>
+        </widget>
+       </item>
+       <item row="1" column="1">
+        <layout class="QGridLayout" name="gridLayout_2">
+         <item row="1" column="0">
+          <widget class="QGroupBox" name="groupBox_5">
+           <property name="title">
+            <string>GroupBox</string>
+           </property>
+           <widget class="QComboBox" name="comboBox_17">
+            <property name="geometry">
+             <rect>
+              <x>0</x>
+              <y>20</y>
+              <width>100</width>
+              <height>30</height>
+             </rect>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>100</width>
+              <height>16777215</height>
+             </size>
+            </property>
+            <item>
+             <property name="text">
+              <string/>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>StochRsi</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>Williams R</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>LSTM</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>EMA</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>RSI</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>MACD_line</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>CCI</string>
+             </property>
+            </item>
+           </widget>
+           <widget class="QComboBox" name="comboBox_7">
+            <property name="geometry">
+             <rect>
+              <x>0</x>
+              <y>50</y>
+              <width>101</width>
+              <height>30</height>
+             </rect>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>200</width>
+              <height>16777215</height>
+             </size>
+            </property>
+            <item>
+             <property name="text">
+              <string>Direction</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>Valeur</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>Return</string>
+             </property>
+            </item>
+           </widget>
+           <widget class="QCheckBox" name="checkBox_6">
+            <property name="geometry">
+             <rect>
+              <x>0</x>
+              <y>80</y>
+              <width>100</width>
+              <height>25</height>
+             </rect>
+            </property>
+            <property name="text">
+             <string>inclus</string>
+            </property>
+           </widget>
+          </widget>
+         </item>
+         <item row="0" column="3">
+          <widget class="QGroupBox" name="groupBox_3">
+           <property name="title">
+            <string>GroupBox</string>
+           </property>
+           <widget class="QComboBox" name="comboBox_15">
+            <property name="geometry">
+             <rect>
+              <x>0</x>
+              <y>20</y>
+              <width>100</width>
+              <height>30</height>
+             </rect>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>100</width>
+              <height>16777215</height>
+             </size>
+            </property>
+            <item>
+             <property name="text">
+              <string/>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>MACD_line</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>CCI</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>StochRsi</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>Williams R</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>LSTM</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>EMA</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>RSI</string>
+             </property>
+            </item>
+           </widget>
+           <widget class="QCheckBox" name="checkBox_4">
+            <property name="geometry">
+             <rect>
+              <x>0</x>
+              <y>80</y>
+              <width>100</width>
+              <height>25</height>
+             </rect>
+            </property>
+            <property name="text">
+             <string>inclus</string>
+            </property>
+           </widget>
+           <widget class="QComboBox" name="comboBox_5">
+            <property name="geometry">
+             <rect>
+              <x>0</x>
+              <y>50</y>
+              <width>101</width>
+              <height>30</height>
+             </rect>
+            </property>
+            <item>
+             <property name="text">
+              <string>Direction</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>Valeur</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>Return</string>
+             </property>
+            </item>
+           </widget>
+          </widget>
+         </item>
+         <item row="0" column="4">
+          <widget class="QGroupBox" name="groupBox_4">
+           <property name="maximumSize">
+            <size>
+             <width>16777215</width>
+             <height>100</height>
+            </size>
+           </property>
+           <property name="title">
+            <string>GroupBox</string>
+           </property>
+           <widget class="QComboBox" name="comboBox_16">
+            <property name="geometry">
+             <rect>
+              <x>0</x>
+              <y>20</y>
+              <width>100</width>
+              <height>30</height>
+             </rect>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>100</width>
+              <height>16777215</height>
+             </size>
+            </property>
+            <item>
+             <property name="text">
+              <string/>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>CCI</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>StochRsi</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>Williams R</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>LSTM</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>EMA</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>RSI</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>MACD_line</string>
+             </property>
+            </item>
+           </widget>
+           <widget class="QCheckBox" name="checkBox_5">
+            <property name="geometry">
+             <rect>
+              <x>0</x>
+              <y>80</y>
+              <width>223</width>
+              <height>25</height>
+             </rect>
+            </property>
+            <property name="text">
+             <string>inclus</string>
+            </property>
+           </widget>
+           <widget class="QComboBox" name="comboBox_6">
+            <property name="geometry">
+             <rect>
+              <x>0</x>
+              <y>50</y>
+              <width>101</width>
+              <height>30</height>
+             </rect>
+            </property>
+            <item>
+             <property name="text">
+              <string>Direction</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>Valeur</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>Return</string>
+             </property>
+            </item>
+           </widget>
+          </widget>
+         </item>
+         <item row="1" column="4">
+          <widget class="QGroupBox" name="groupBox_8">
+           <property name="title">
+            <string>GroupBox</string>
+           </property>
+           <widget class="QCheckBox" name="time_live_2">
+            <property name="geometry">
+             <rect>
+              <x>0</x>
+              <y>20</y>
+              <width>100</width>
+              <height>25</height>
+             </rect>
+            </property>
+            <property name="text">
+             <string>time live</string>
+            </property>
+           </widget>
+           <widget class="QCheckBox" name="checkBox_9">
+            <property name="geometry">
+             <rect>
+              <x>0</x>
+              <y>80</y>
+              <width>100</width>
+              <height>25</height>
+             </rect>
+            </property>
+            <property name="text">
+             <string>inclus</string>
+            </property>
+           </widget>
+          </widget>
+         </item>
+         <item row="0" column="0">
+          <widget class="QGroupBox" name="groupBox">
+           <property name="title">
+            <string/>
+           </property>
+           <widget class="QComboBox" name="comboBox_2">
+            <property name="geometry">
+             <rect>
+              <x>0</x>
+              <y>20</y>
+              <width>100</width>
+              <height>30</height>
+             </rect>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>100</width>
+              <height>16777215</height>
+             </size>
+            </property>
+            <property name="sizeIncrement">
+             <size>
+              <width>10</width>
+              <height>0</height>
+             </size>
+            </property>
+            <item>
+             <property name="text">
+              <string/>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>close</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>EMA</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>RSI</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>MACD_line</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>CCI</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>StochRsi</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>Williams R</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>LSTM</string>
+             </property>
+            </item>
+           </widget>
+           <widget class="QCheckBox" name="checkBox">
+            <property name="geometry">
+             <rect>
+              <x>0</x>
+              <y>80</y>
+              <width>100</width>
+              <height>25</height>
+             </rect>
+            </property>
+            <property name="text">
+             <string>inclus</string>
+            </property>
+           </widget>
+           <widget class="QComboBox" name="comboBox_3">
+            <property name="geometry">
+             <rect>
+              <x>0</x>
+              <y>50</y>
+              <width>101</width>
+              <height>30</height>
+             </rect>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>200</width>
+              <height>16777215</height>
+             </size>
+            </property>
+            <item>
+             <property name="text">
+              <string>Direction</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>Valeur</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>Return</string>
+             </property>
+            </item>
+           </widget>
+          </widget>
+         </item>
+         <item row="1" column="3">
+          <widget class="QGroupBox" name="groupBox_7">
+           <property name="title">
+            <string>GroupBox</string>
+           </property>
+           <widget class="QComboBox" name="comboBox_19">
+            <property name="geometry">
+             <rect>
+              <x>0</x>
+              <y>20</y>
+              <width>100</width>
+              <height>30</height>
+             </rect>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>100</width>
+              <height>16777215</height>
+             </size>
+            </property>
+            <item>
+             <property name="text">
+              <string/>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>LSTM</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>EMA</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>RSI</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>MACD_line</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>CCI</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>StochRsi</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>Williams R</string>
+             </property>
+            </item>
+           </widget>
+           <widget class="QComboBox" name="comboBox_21">
+            <property name="geometry">
+             <rect>
+              <x>0</x>
+              <y>50</y>
+              <width>101</width>
+              <height>30</height>
+             </rect>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>200</width>
+              <height>16777215</height>
+             </size>
+            </property>
+            <item>
+             <property name="text">
+              <string>Direction</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>Valeur</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>Return</string>
+             </property>
+            </item>
+           </widget>
+           <widget class="QCheckBox" name="checkBox_8">
+            <property name="geometry">
+             <rect>
+              <x>0</x>
+              <y>80</y>
+              <width>100</width>
+              <height>25</height>
+             </rect>
+            </property>
+            <property name="text">
+             <string>inclus</string>
+            </property>
+           </widget>
+          </widget>
+         </item>
+         <item row="0" column="2">
+          <widget class="QGroupBox" name="groupBox_2">
+           <property name="title">
+            <string>GroupBox</string>
+           </property>
+           <widget class="QComboBox" name="comboBox_14">
+            <property name="geometry">
+             <rect>
+              <x>0</x>
+              <y>20</y>
+              <width>100</width>
+              <height>30</height>
+             </rect>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>100</width>
+              <height>16777215</height>
+             </size>
+            </property>
+            <item>
+             <property name="text">
+              <string/>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>RSI</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>MACD_line</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>CCI</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>StochRsi</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>Williams R</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>LSTM</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>EMA</string>
+             </property>
+            </item>
+           </widget>
+           <widget class="QCheckBox" name="checkBox_3">
+            <property name="geometry">
+             <rect>
+              <x>0</x>
+              <y>80</y>
+              <width>100</width>
+              <height>25</height>
+             </rect>
+            </property>
+            <property name="text">
+             <string>inclus</string>
+            </property>
+           </widget>
+           <widget class="QComboBox" name="comboBox_4">
+            <property name="geometry">
+             <rect>
+              <x>-3</x>
+              <y>50</y>
+              <width>100</width>
+              <height>30</height>
+             </rect>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>100</width>
+              <height>16777215</height>
+             </size>
+            </property>
+            <item>
+             <property name="text">
+              <string>Direction</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>Valeur</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>Return</string>
+             </property>
+            </item>
+           </widget>
+          </widget>
+         </item>
+         <item row="1" column="2">
+          <widget class="QGroupBox" name="groupBox_6">
+           <property name="title">
+            <string>GroupBox</string>
+           </property>
+           <widget class="QComboBox" name="comboBox_18">
+            <property name="geometry">
+             <rect>
+              <x>0</x>
+              <y>20</y>
+              <width>100</width>
+              <height>30</height>
+             </rect>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>100</width>
+              <height>16777215</height>
+             </size>
+            </property>
+            <item>
+             <property name="text">
+              <string/>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>Williams R</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>LSTM</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>EMA</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>RSI</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>MACD_line</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>CCI</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>StochRsi</string>
+             </property>
+            </item>
+           </widget>
+           <widget class="QComboBox" name="comboBox_20">
+            <property name="geometry">
+             <rect>
+              <x>0</x>
+              <y>50</y>
+              <width>101</width>
+              <height>30</height>
+             </rect>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>200</width>
+              <height>16777215</height>
+             </size>
+            </property>
+            <item>
+             <property name="text">
+              <string>Direction</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>Valeur</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>Return</string>
+             </property>
+            </item>
+           </widget>
+           <widget class="QCheckBox" name="checkBox_7">
+            <property name="geometry">
+             <rect>
+              <x>0</x>
+              <y>80</y>
+              <width>100</width>
+              <height>25</height>
+             </rect>
+            </property>
+            <property name="text">
+             <string>inclus</string>
+            </property>
+           </widget>
+          </widget>
+         </item>
+        </layout>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QPushButton" name="pushValidation">
+      <property name="geometry">
+       <rect>
+        <x>260</x>
+        <y>390</y>
+        <width>94</width>
+        <height>28</height>
+       </rect>
+      </property>
+      <property name="text">
+       <string>Validation</string>
+      </property>
+     </widget>
+     <widget class="QPushButton" name="pushLoad">
+      <property name="geometry">
+       <rect>
+        <x>450</x>
+        <y>390</y>
+        <width>94</width>
+        <height>28</height>
+       </rect>
+      </property>
+      <property name="text">
+       <string>Chargement</string>
+      </property>
+     </widget>
+     <widget class="QPushButton" name="pushSave">
+      <property name="geometry">
+       <rect>
+        <x>620</x>
+        <y>390</y>
+        <width>94</width>
+        <height>28</height>
+       </rect>
+      </property>
+      <property name="text">
+       <string>Sauvegarde</string>
+      </property>
+     </widget>
+    </widget>
+    <widget class="QWidget" name="live_tab">
+     <attribute name="title">
+      <string>Trading</string>
+     </attribute>
+    </widget>
+    <widget class="QWidget" name="optimization_tb">
+     <attribute name="title">
+      <string>Optimisation</string>
+     </attribute>
+    </widget>
+   </widget>
+  </widget>
+  <widget class="QStatusBar" name="statusbar"/>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>OptimizationTab</class>
+ <widget class="QWidget" name="OptimizationTab">
+  <layout class="QVBoxLayout">
+   <item>
+    <widget class="QGroupBox">
+     <property name="title"><string>Période de Test</string></property>
+     <layout class="QFormLayout">
+      <item row="0" column="0">
+       <widget class="QLabel"><property name="text"><string>Date Début</string></property></widget>
+      </item>
+      <item row="0" column="1">
+       <widget class="QDateEdit" name="date_start">
+        <property name="calendarPopup"><bool>true</bool></property>
+        <property name="date"><date><year>2023</year><month>1</month><day>1</day></date></property>
+       </widget>
+      </item>
+      <item row="1" column="0">
+       <widget class="QLabel"><property name="text"><string>Date Fin</string></property></widget>
+      </item>
+      <item row="1" column="1">
+       <widget class="QDateEdit" name="date_end">
+        <property name="calendarPopup"><bool>true</bool></property>
+        <property name="date"><date><year>2025</year><month>11</month><day>13</day></date></property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+
+   <item>
+    <widget class="QGroupBox">
+     <property name="title"><string>Paramètres d'Optimisation</string></property>
+     <layout class="QGridLayout" name="gridLayout">
+      <!-- Taille Renko -->
+      <item row="0" column="0"><widget class="QLabel"><property name="text"><string>Taille Renko</string></property></widget></item>
+      <item row="0" column="1"><widget class="QLineEdit" name="opt_renko_size"><property name="placeholderText"><string>10,15,20 ou 10-30-5</string></property></widget></item>
+      <item row="0" column="2"><widget class="QCheckBox" name="opt_renko_list"><property name="text"><string>Liste</string></property></widget></item>
+
+      <!-- Séquence LSTM -->
+      <item row="1" column="0"><widget class="QLabel"><property name="text"><string>Séquence LSTM</string></property></widget></item>
+      <item row="1" column="1"><widget class="QLineEdit" name="opt_lstm_seq_len"><property name="placeholderText"><string>30,60,90</string></property></widget></item>
+      <item row="1" column="2"><widget class="QCheckBox" name="opt_lstm_seq_list"><property name="text"><string>Liste</string></property></widget></item>
+
+      <!-- Unités LSTM -->
+      <item row="2" column="0"><widget class="QLabel"><property name="text"><string>Unités LSTM</string></property></widget></item>
+      <item row="2" column="1"><widget class="QLineEdit" name="opt_lstm_units"><property name="placeholderText"><string>64,128,256</string></property></widget></item>
+      <item row="2" column="2"><widget class="QCheckBox" name="opt_lstm_units_list"><property name="text"><string>Liste</string></property></widget></item>
+
+      <!-- Seuil Achat -->
+      <item row="3" column="0"><widget class="QLabel"><property name="text"><string>Seuil Achat</string></property></widget></item>
+      <item row="3" column="1"><widget class="QLineEdit" name="opt_threshold_buy"><property name="placeholderText"><string>0.5,0.6,0.7</string></property></widget></item>
+      <item row="3" column="2"><widget class="QCheckBox" name="opt_threshold_buy_list"><property name="text"><string>Liste</string></property></widget></item>
+
+      <!-- Seuil Vente -->
+      <item row="4" column="0"><widget class="QLabel"><property name="text"><string>Seuil Vente</string></property></widget></item>
+      <item row="4" column="1"><widget class="QLineEdit" name="opt_threshold_sell"><property name="placeholderText"><string>0.3,0.4,0.5</string></property></widget></item>
+      <item row="4" column="2"><widget class="QCheckBox" name="opt_threshold_sell_list"><property name="text"><string>Liste</string></property></widget></item>
+
+      <!-- RSI Period -->
+      <item row="5" column="0"><widget class="QLabel"><property name="text"><string>Rsi period</string></property></widget></item>
+      <item row="5" column="1"><widget class="QLineEdit" name="opt_rsi_period"><property name="placeholderText"><string>10,14,20</string></property></widget></item>
+      <item row="5" column="2"><widget class="QCheckBox" name="opt_rsi_period_list"><property name="text"><string>Liste</string></property></widget></item>
+
+      <!-- EMA Period -->
+      <item row="6" column="0"><widget class="QLabel"><property name="text"><string>Ema period</string></property></widget></item>
+      <item row="6" column="1"><widget class="QLineEdit" name="opt_ema_period"><property name="placeholderText"><string>5,9,13</string></property></widget></item>
+      <item row="6" column="2"><widget class="QCheckBox" name="opt_ema_period_list"><property name="text"><string>Liste</string></property></widget></item>
+     </layout>
+    </widget>
+   </item>
+
+   <!-- BOUTONS -->
+   <item>
+    <layout class="QHBoxLayout">
+     <item>
+      <widget class="QPushButton" name="btn_start_opt">
+       <property name="text"><string>Lancer Optimisation</string></property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="btn_export_params">
+       <property name="text"><string>Exporter Grille</string></property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+
+   <!-- PROGRESS + STATUS -->
+   <item>
+    <widget class="QProgressBar" name="opt_progress"/>
+   </item>
+   <item>
+    <widget class="QLabel" name="opt_status">
+     <property name="text"><string>Prêt</string></property>
+     <property name="alignment"><set>Qt::AlignCenter</set></property>
+     <property name="styleSheet"><string>font-weight: bold;</string></property>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
