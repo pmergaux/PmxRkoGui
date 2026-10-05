@@ -16,7 +16,8 @@ from decision.candle_decision import fast_stats_single, is_market_exploding, cal
 	add_indicators_optimized, choix_features_numba, calculate_atr
 from decision.trading_decision import trading_decision, decision_bricks, get_last_decision, \
 	decision_ai, decision_rates, get_rnn_only_decision, proba_final, decision_monitor, \
-	calcul_situation, calcul_bornes, monitoring, IndicatorMonitor
+	calcul_situation, calcul_bornes, calcul_bornes_dynamiques, monitoring, IndicatorMonitor, \
+	enhanced_decision, ZoneStabilityFilter, weighted_decision, detect_market_regime, soft_zone_score, discretize_score
 from utils.utils import NONE, BUY, SELL, CLOSE, FCLOSE, calculer_stats, JAUNE, RESET, VIOLET, ROUGE, VERT, BLEU, \
 	BLEU_CIEL, get_clean_timestamp, get_dynamic_sensitivity, get_linear_slope
 from datetime import datetime, timedelta, time
@@ -571,18 +572,74 @@ class PmxRkoStrategy(Strategy):
 		proba, z_indic, z_means, moy = monitoring(self.proba, self.monitor_indic, self.monitor_means)
 
 		blocked = self.is_blocked()
-		bornes = calcul_bornes(self.regression, self._param)
-		# print(f"{self.live['name']} bornes {bornes}")
-		if utils.config_utils.VDIRECT:
-			dest = [-2, -1, 0, 1, 2]        # situation normale
+		
+		# ============================================================================
+		# NOUVELLE LOGIQUE HYBRIDE
+		# ============================================================================
+		
+		# 1. Préparation des données pour la décision améliorée
+		current_time = datetime.now()
+		r2 = dj['er'].iloc[-1] if dj is not None and 'er' in dj.columns else 0.5
+		er_val = dj['er'].iloc[-1] if dj is not None and 'er' in dj.columns else 0.5
+		
+		# 2. Collecte des probabilités de tous les modèles
+		proba_dict = {}
+		weights = self._param.get("weights", {})
+		
+		# Si on a plusieurs modèles, récupérer leurs prédictions
+		if hasattr(self, 'models') and self.models:
+			for model_name, model in self.models.items():
+				if model is not None:
+					# Pour l'instant, on utilise self.proba comme proba principale
+					# Dans une version future, on pourrait appeler chaque modèle
+					proba_dict[model_name] = [self.proba]
+			else:
+				proba_dict['default'] = [self.proba]
 		else:
-			dest = [2, 1, 0, -1, -2]        # situation normale
-		# dest = [-2, 1, 0, -1, 2]        # situation anti
-		situation = calcul_situation(self.monitor_indic, self.bricks.tail(4), bornes, dest, True)
+			proba_dict['default'] = [self.proba]
+		
+		# 3. Utilisation de la décision améliorée
+		# Vérifier si on a assez de données pour les indicateurs
+		if self.display is not None and len(self.display) > 0:
+			df_for_decision = self.display
+		else:
+			df_for_decision = self.bricks
+		
+		# Ajouter R2 et ER si disponibles
+		if 'R2' not in df_for_decision.columns and dj is not None and 'er' in dj.columns:
+			df_for_decision = df_for_decision.copy()
+			df_for_decision['R2'] = dj['er']  # Utiliser ER comme proxy pour R2
+			df_for_decision['ER'] = dj['er']
+		
+		# Appel à la décision hybride
+		try:
+			situation = enhanced_decision(
+				proba_dict=proba_dict,
+				weights=weights,
+				df=df_for_decision,
+				param=self._param,
+				current_time=current_time,
+				regression=self.regression
+			)
+		except Exception as e:
+			print(f"Erreur dans enhanced_decision: {e}")
+			# Retour à l'ancienne méthode en cas d'erreur
+			bornes = calcul_bornes(self.regression, self._param)
+			if utils.config_utils.VDIRECT:
+				dest = [-2, -1, 0, 1, 2]
+			else:
+				dest = [2, 1, 0, -1, -2]
+			situation = calcul_situation(self.monitor_indic, self.bricks.tail(4), bornes, dest, True)
+		
 		if blocked != NONE and abs(situation) == 2:
 			situation = blocked * 2
 		#sens, is_strong_market_push, trend_down_valid, trend_up_valid = self.market_analysis(proba, z_indic, moy, z_means, True)
 
+		# Debug: Afficher le régime détecté
+		regime = detect_market_regime(self.display if self.display is not None else self.bricks)
+		if self.parent:
+			print(f"{BLEU_CIEL}[HYBRID] Régime: {regime}, Situation: {situation}, Proba: {proba:.4f}{RESET}")
+		
 		sigOpen = 0
 		sigClose = 0
 		lp = len(self.positions)

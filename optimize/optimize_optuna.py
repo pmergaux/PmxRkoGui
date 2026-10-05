@@ -129,10 +129,22 @@ def objective(trial):
     """
     renko_size = round(trial.suggest_float('renko_size', 9.0, 22.1, step=0.1), 1)
     ema_period = trial.suggest_int('ema_period', 6, 15)
+    
+    # Optimisation des bornes dynamiques
     threshold_sell = round(trial.suggest_float("threshold_sell", 0.15, 0.35, step=0.01), 2)
-    close_buy = round(trial.suggest_float('close_buy', 0.4, 0.5, step=0.01), 2)
-    close_sell = round(trial.suggest_float("close_sell", 0.5, 0.6, step=0.01), 2)
+    close_buy = round(trial.suggest_float('close_buy', 0.3, 0.5, step=0.01), 2)
+    close_sell = round(trial.suggest_float("close_sell", 0.5, 0.7, step=0.01), 2)
     threshold_buy = round(trial.suggest_float("threshold_buy", 0.65, 0.85, step=0.01), 2)
+    
+    # Paramètres pour le filtrage temporel
+    min_stability_time = trial.suggest_int('min_stability_time', 180, 600, step=60)  # 3 à 10 minutes
+    
+    # Poids des modèles pour la combinaison IA + Rules
+    weight_lstm = trial.suggest_int("weight_lstm", 1, 10, step=1)
+    weight_jepa = trial.suggest_int("weight_jepa", 1, 10, step=1)
+    weight_tab = trial.suggest_int("weight_tab", 1, 10, step=1)
+    weight_cat = trial.suggest_int("weight_cat", 1, 10, step=1)
+    weight_xgb = trial.suggest_int("weight_xgb", 1, 10, step=1)
     target_col = trial.suggest_categorical('target_col', ['diff_close', 'diff_ema', 'diff_rsi'])
     # 1. Utiliser un tuple incluant JEPA dans les choix de modèles
 
@@ -170,10 +182,21 @@ def objective(trial):
     config["parameters"]["threshold_sell"] = threshold_sell
     config["parameters"]["close_buy"] = close_buy
     config["parameters"]["close_sell"] = close_sell
-    config["parameters"]["weights"]["JEPA"] = trial.suggest_int("weights_jepa", 5, 10, step=1)
-    config["parameters"]["weights"]["TAB"] = trial.suggest_int("weights_tab", 5, 10, step=1)
-    config["parameters"]["weights"]["TABFIN"] = trial.suggest_int("weights_tab", 5, 10, step=1)
-    config["parameters"]["weights"]["FINJEPA"] = trial.suggest_int("weights_tab", 5, 10, step=1)
+    
+    # Configuration des poids pour la combinaison IA + Rules
+    config["parameters"]["weights"] = {
+        "LSTM": weight_lstm,
+        "JEPA": weight_jepa,
+        "TAB": weight_tab,
+        "TABFIN": weight_tab,
+        "FINJEPA": weight_cat,
+        "CAT": weight_cat,
+        "XGB": weight_xgb,
+        "LGBM": trial.suggest_int("weight_lgbm", 1, 10, step=1)
+    }
+    
+    # Paramètres pour le filtrage temporel (à utiliser dans enhanced_decision)
+    config["parameters"]["min_stability_time"] = min_stability_time
 
     # config["features"] = ["time_live", "close", "diff_close", "diff_ema", "RSI", "diff_macd"]
     """
@@ -198,24 +221,23 @@ def objective(trial):
         # Élargissement léger si le modèle a besoin de capacité
         "LATENT_DIM": trial.suggest_categorical('LATENT_DIM', [32, 64, 128]),  # Proportionnel au hidden_dim
         "NUM_LAYERS": trial.suggest_int('NUM_LAYERS', 1, 2),  # Validé par vos tests précédents
-        "LR": trial.suggest_float('LR', 5e-4, 5e-3, log=True),
-        # Plage resserrée autour des zones de convergence stables
-        "NUM_EPOCHS": trial.suggest_int('NUM_EPOCHS', 1, 3),  # Un peu plus de temps de convergence
-        "INPUT_DIM": 6,
+        "LR": trial.suggest_float('LR', 0.001, 0.01, log=True),
+        "NUM_EPOCHS": trial.suggest_int('NUM_EPOCHS', 10, 50, step=5)
     }
-    config["finjepa"] = {
-        # Longueur du contexte historique analysé par la Fin-JEPA
-        "context_len": trial.suggest_categorical('fin_context_len', [30, 45, 60, 90]),
-        # Horizon de prédiction (cible)
-        "target_len": trial.suggest_categorical('fin_target_len', [10, 15, 20, 30]),
-        # Taille de batch fixée pour la stabilité sur CPU
-        "batch_size": 32,
-        # Nombre d'époques resserré pour que l'entraînement reste instantané
-        "epochs": trial.suggest_int('fin_epochs', 2, 6),
-        # Taux d'apprentissage exploré sur une échelle logarithmique
-        "lr": trial.suggest_float('fin_lr', 5e-5, 1e-3, log=True),
-    }
-    """
+    
+    # Configuration pour les autres modèles
+    config["lstm"]["lstm_seq_len"] = trial.suggest_int('lstm_seq_len', 24, 64, step=8)
+    config["lstm"]["lstm_units"] = trial.suggest_int('lstm_units', 48, 240, step=48)
+    
+    config["mlp"]["mlp_unit1"] = trial.suggest_int('mlp_unit1', 128, 256, step=128)
+    config["mlp"]["mlp_dropout"] = trial.suggest_float('mlp_dropout', 0.2, 0.5, step=0.1)
+    config["mlp"]["mlp_patience"] = trial.suggest_int('mlp_patience', 10, 20)
+
+    config["xgb"]["xgb_learning_rate"] = trial.suggest_categorical('xgb_learning_rate', [0.01, 0.03, 0.05])
+    config["xgb"]["xgb_max_depth"] = trial.suggest_categorical('xgb_max_depth', [4, 6, 8])
+    config["xgb"]["xgb_subsample"] = trial.suggest_categorical('xgb_subsample', [0.7, 0.8, 0.9])
+    config["xgb"]["xgb_colsample_bytree"] = trial.suggest_categorical('xgb_colsample_bytree', [0.7, 0.8, 0.9])
+    
     config["lgbm"]["lgbm_learning_rate"] = trial.suggest_categorical('lgbm_learning_rate', [0.01, 0.03, 0.05])
     config["lgbm"]["lgbm_num_leaves"] = trial.suggest_categorical('lgbm_num_leaves', [15, 31, 63])
     config["lgbm"]["lgbm_feature_fraction"] = trial.suggest_categorical('lgbm_feature_fraction', [0.7, 0.8, 0.9])
@@ -230,7 +252,29 @@ def objective(trial):
     config["gru"]["gru_dropout"] = trial.suggest_float("gru_dropout", 0.1, 0.4, step=0.1)
     config["gru"]["batch_size"] = trial.suggest_categorical("batch_size", [32, 128])
     config["gru"]["gru_patience"] = 10
-    """
+    
+    config["catboost"] = {
+        "iterations": trial.suggest_int('iterations', 200, 2000, step=200),
+        "depth": trial.suggest_int('depth', 4, 10, step=1),
+        "learning_rate":  trial.suggest_float('learning_rate', 0.01, 0.31, step=0.05),
+        "l2_leaf_reg": trial.suggest_int('l2_leaf_reg', 1, 10, step=1)
+    }
+    
+    config["finjepa"] = {
+        # Longueur du contexte historique analysé par la Fin-JEPA
+        "context_len": trial.suggest_categorical('fin_context_len', [30, 45, 60, 90]),
+        # Horizon de prédiction (cible)
+        "target_len": trial.suggest_categorical('fin_target_len', [10, 15, 20, 30]),
+        # Taille de batch fixée pour la stabilité sur CPU
+        "batch_size": 32,
+        # Nombre d'époques resserré pour que l'entraînement reste instantané
+        "epochs": trial.suggest_int('fin_epochs', 2, 6),
+        # Taux d'apprentissage exploré sur une échelle logarithmique
+        "lr": trial.suggest_float('fin_lr', 5e-5, 1e-3, log=True),
+    }
+    
+    config["gru"]["batch_size"] = trial.suggest_categorical("batch_size", [32, 128])
+    config["gru"]["gru_patience"] = 10
     config["catboost"] = {
         "iterations": trial.suggest_int('iterations', 200, 2000, step=200),
         "depth": trial.suggest_int('depth', 4, 10, step=1),
@@ -243,6 +287,10 @@ def objective(trial):
     # 3. On redécoupe la chaîne pour retrouver votre liste de modèles
     chosen_string = trial.suggest_categorical("version", version_choices)
     config['live']["version"] = [v.strip() for v in chosen_string.split(",")]
+    
+    # Optimisation de l'option VSIMPLE/VTOTALE/VDIRECT
+    option_str = trial.suggest_categorical("option", ["TTT", "TTF", "TFT", "TFF", "FTT", "FTF", "FFT", "FFF"])
+    config["live"]["option"] = option_str
     # config['live']['version'] = ['CAT']
     # config["live"]["version"] = ['TAB']
     # config["live"]["version"] = ['LGBM']

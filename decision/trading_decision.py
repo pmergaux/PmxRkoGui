@@ -1,6 +1,6 @@
 import time
 
-from lightning.pytorch.callbacks import prediction_writer
+
 import math
 from datetime import datetime
 
@@ -458,9 +458,10 @@ def calcul_situation(monitor_valeurs: IndicatorMonitor, recent_bricks ,bornes, d
 
 	return local_situation
 
+
 def calcul_bornes(regression, param):
 	if not regression:
-		bornes = [param.get('threshold_sell', 0.25), param.get('close_buy', 0.4), param.get('close_sell', 6), param.get('threshold_buy', 0.75)]
+		bornes = [param.get('threshold_sell', 0.25), param.get('close_buy', 0.4), param.get('close_sell', 0.6), param.get('threshold_buy', 0.75)]
 	else:
 		ol_r = param.get('open_level_rnn', 1.5)
 		ol_t = param.get('open_level_tabicl', 1.5)
@@ -470,6 +471,66 @@ def calcul_bornes(regression, param):
 		b_l = proba_final(cl_r, cl_t, 0.7)
 		bornes = [-b_u, -b_l, b_l, b_u]
 	return bornes
+
+
+def calcul_bornes_dynamiques(regression, param, df, proba, r2, er):
+	"""
+	Calcule des bornes dynamiques en fonction de la volatilité et de la confiance des modèles.
+	
+	Args:
+		regression: bool, si True utilise la logique RNN
+		param: dict, paramètres de configuration
+		df: DataFrame, données avec indicateurs (ATR, etc.)
+		proba: float, dernière probabilité prédite
+		r2: float, coefficient de détermination
+		er: float, efficiency ratio
+	
+	Returns:
+		list: [threshold_sell, close_buy, close_sell, threshold_buy]
+	"""
+	# 1. Bornes de base
+	base_bornes = [
+		param.get('threshold_sell', 0.25),
+		param.get('close_buy', 0.4),
+		param.get('close_sell', 0.6),
+		param.get('threshold_buy', 0.75)
+	]
+
+	# 2. Calcul de la volatilité (ATR normalisé)
+	if 'ATR' in df.columns and len(df) > 1:
+		atr = df['ATR'].iloc[-1]
+		atr_mean = df['ATR'].rolling(min(50, len(df))).mean().iloc[-1]
+		volatility_ratio = atr / atr_mean if atr_mean != 0 else 1.0
+	else:
+		volatility_ratio = 1.0
+
+	# 3. Calcul de la confiance des modèles
+	confidence = (r2 + er) / 2 if (r2 + er) > 0 else 0.5
+
+	# 4. Ajustement dynamique des bornes
+	# Si volatilité élevée → élargir les zones (moins sensible)
+	# Si confiance élevée → serrer les zones (plus précis)
+	volatility_factor = 1.0 + (volatility_ratio - 1.0) * 0.3  # ±30% max
+	confidence_factor = 1.0 - (1.0 - confidence) * 0.5  # 50% à 100%
+
+	# 5. Application des facteurs
+	dynamic_bornes = [
+		max(0.1, min(0.4, base_bornes[0] * volatility_factor / confidence_factor)),  # threshold_sell
+		max(0.2, min(0.5, base_bornes[1] * volatility_factor / confidence_factor)),  # close_buy
+		max(0.5, min(0.7, base_bornes[2] * volatility_factor * confidence_factor)),  # close_sell
+		min(0.9, max(0.6, base_bornes[3] * volatility_factor * confidence_factor))   # threshold_buy
+	]
+
+	if regression:
+		ol_r = param.get('open_level_rnn', 1.5)
+		ol_t = param.get('open_level_tabicl', 1.5)
+		cl_r = param.get('close_level_rnn', 0.1)
+		cl_t = param.get('close_level_tabicl', 0.1)
+		b_u = proba_final(ol_r, ol_t, 0.7)
+		b_l = proba_final(cl_r, cl_t, 0.7)
+		dynamic_bornes = [-b_u, -b_l, b_l, b_u]
+
+	return dynamic_bornes
 
 def get_rnn_anti_decision(current_position, current_price, entry_price,
 						  sl_dist, tp_dist, situation, new_situation,  trace=False):
@@ -1108,4 +1169,281 @@ def sync_renko_with_r2(df_renko, df_candles):
 								on='time',
 								direction='backward')
 	return df_combined
+
+
+# ============================================================================
+# NOUVELLES FONCTIONS POUR LA SOLUTION HYBRIDE
+# ============================================================================
+
+class ZoneStabilityFilter:
+    """
+    Filtre de stabilité temporelle pour éviter les faux signaux.
+    Ne valide une zone que si elle reste stable pendant un temps minimal.
+    """
+    def __init__(self, min_stability_time=300):  # 5 min par défaut
+        self.min_stability_time = min_stability_time
+        self.current_zone = None
+        self.zone_start_time = None
+        self.zone_history = deque(maxlen=10)  # Dernières 10 zones
+
+    def update(self, proba, bornes, current_time):
+        """
+        Met à jour le filtre avec la dernière probabilité et le temps actuel.
+        
+        Args:
+            proba: float, probabilité actuelle
+            bornes: list, liste des 4 seuils [threshold_sell, close_buy, close_sell, threshold_buy]
+            current_time: datetime, heure actuelle
+            
+        Returns:
+            int or None: la zone stable (0, ±1, ±2) ou None si instable
+        """
+        # Déterminer la zone actuelle
+        if proba < bornes[0]:
+            zone = -2  # SV
+        elif proba < bornes[1]:
+            zone = -1  # V
+        elif proba < bornes[2]:
+            zone = 0   # N
+        elif proba < bornes[3]:
+            zone = 1   # A
+        else:
+            zone = 2   # SA
+
+        # Si la zone change
+        if zone != self.current_zone:
+            self.current_zone = zone
+            self.zone_start_time = current_time
+            self.zone_history.append((zone, current_time))
+            return None  # Changement de zone → pas de décision
+        else:
+            # Vérifier si on est stable depuis assez longtemps
+            if self.zone_start_time is not None:
+                stability_duration = (current_time - self.zone_start_time).total_seconds()
+                if stability_duration >= self.min_stability_time:
+                    return zone  # Zone stable → décision valide
+            return None  # Zone instable → pas de décision
+
+
+def detect_market_regime(df, window=20):
+    """
+    Détecte le régime du marché (Trending, Ranging, Volatile).
+    
+    Args:
+        df: DataFrame avec colonnes 'close', 'high', 'low'
+        window: int, fenêtre pour le calcul de la pente
+        
+    Returns:
+        str: "TRENDING_UP", "TRENDING_DOWN", "RANGING", ou "VOLATILE"
+    """
+    if len(df) < window or 'close' not in df.columns:
+        return "RANGING"
+    
+    # 1. Calcul de la pente de la régression linéaire
+    close_prices = df['close'].iloc[-window:].values
+    x = np.arange(window)
+    try:
+        slope, _ = np.polyfit(x, close_prices, 1)
+    except:
+        slope = 0
+    
+    # 2. Calcul de la volatilité (écart-type normalisé)
+    if len(df) > 50:
+        volatility = np.std(close_prices)
+        volatility_mean = df['close'].rolling(100).std().iloc[-1]
+        volatility_ratio = volatility / volatility_mean if volatility_mean != 0 else 1.0
+    else:
+        volatility_ratio = 1.0
+    
+    # 3. Calcul de l'ADX (approximation simple)
+    if 'high' in df.columns and 'low' in df.columns:
+        # Calcul simplifié de l'ADX ( sans ta.lib pour éviter les dépendances)
+        plus_dm = df['high'].diff().clip(lower=0)
+        minus_dm = -df['low'].diff().clip(upper=0)
+        tr = pd.concat([df['high'] - df['low'], 
+                        abs(df['high'] - df['close'].shift(1)), 
+                        abs(df['low'] - df['close'].shift(1))], axis=1).max(axis=1)
+        
+        atr = tr.rolling(14).mean().iloc[-1]
+        if atr == 0:
+            atr = 1
+        
+        plus_di = 100 * (plus_dm.rolling(14).mean() / atr) if atr != 0 else 0
+        minus_di = 100 * (minus_dm.rolling(14).mean() / atr) if atr != 0 else 0
+        dx = 100 * abs(plus_di - minus_di) / (plus_di + minus_di) if (plus_di + minus_di) != 0 else 0
+        adx = dx.rolling(14).mean().iloc[-1] if len(dx) >= 14 else 0
+    else:
+        adx = 0
+    
+    # 4. Détection du régime
+    if adx > 25:
+        if slope > 0:
+            return "TRENDING_UP"
+        else:
+            return "TRENDING_DOWN"
+    elif volatility_ratio > 1.5:
+        return "VOLATILE"
+    else:
+        return "RANGING"
+
+
+def weighted_decision(proba_dict, weights, df, bornes):
+    """
+    Combine les prédictions de plusieurs modèles IA avec des règles métiers.
+    
+    Args:
+        proba_dict: dict {model_name: proba_array}, probabilités par modèle
+        weights: dict {model_name: weight}, poids par modèle
+        df: DataFrame, données avec indicateurs (RSI, MACD, etc.)
+        bornes: list, liste des 4 seuils
+        
+    Returns:
+        float: score final entre -2 et +2
+    """
+    # 1. Calcul des scores par modèle
+    model_scores = {}
+    for model_name, proba in proba_dict.items():
+        if proba is None:
+            continue
+        # Prendre la dernière probabilité
+        last_proba = proba[-1] if isinstance(proba, (list, np.ndarray)) else proba
+        model_scores[model_name] = soft_zone_score(last_proba, bornes)
+    
+    if not model_scores:
+        return 0.0
+    
+    # 2. Pondération par les poids
+    weighted_sum = 0
+    total_weight = 0
+    for model_name, score in model_scores.items():
+        weight = weights.get(model_name, 1.0)
+        weighted_sum += score * weight
+        total_weight += weight
+    
+    # 3. Score moyen
+    avg_score = weighted_sum / total_weight if total_weight != 0 else 0
+    
+    # 4. Ajustement par les règles métiers
+    # Exemple : Si RSI > 70 → réduire le score (surachat)
+    if 'RSI' in df.columns:
+        rsi = df['RSI'].iloc[-1]
+        if rsi > 70:
+            avg_score *= 0.7  # Réduction de 30%
+        elif rsi < 30:
+            avg_score *= 1.3  # Amplification de 30%
+    
+    # Exemple : Si MACD < 0 → réduire le score (tendance baissière)
+    if 'MACD_hist' in df.columns:
+        macd = df['MACD_hist'].iloc[-1]
+        if macd < 0:
+            avg_score *= 0.8
+    
+    # Exemple : Si la pente est forte → amplifier le score
+    if 'slope' in df.columns:
+        slope = df['slope'].iloc[-1]
+        if slope > 0.01:
+            avg_score *= 1.2
+        elif slope < -0.01:
+            avg_score *= 0.8
+    
+    return avg_score
+
+
+def soft_zone_score(proba, bornes):
+    """
+    Calcule un score continu entre -2 et +2 en fonction de la proba.
+    Plus la proba est éloignée des bornes, plus le score est extrême.
+    
+    Args:
+        proba: float, probabilité (0-1)
+        bornes: list, liste des 4 seuils [threshold_sell, close_buy, close_sell, threshold_buy]
+        
+    Returns:
+        float: score entre -2 et +2
+    """
+    if proba <= bornes[0]:
+        # Zone SV : score entre -2 et -1
+        return -2 + (proba / bornes[0]) * 1 if bornes[0] != 0 else -2
+    elif proba <= bornes[1]:
+        # Zone V : score entre -1 et 0
+        return -1 + ((proba - bornes[0]) / (bornes[1] - bornes[0])) * 1
+    elif proba <= bornes[2]:
+        # Zone N : score entre 0 et 0 (toujours 0)
+        return 0
+    elif proba <= bornes[3]:
+        # Zone A : score entre 0 et 1
+        return 0 + ((proba - bornes[2]) / (bornes[3] - bornes[2])) * 1
+    else:
+        # Zone SA : score entre 1 et 2
+        return 1 + ((proba - bornes[3]) / (1.0 - bornes[3])) * 1
+
+
+def discretize_score(score):
+    """
+    Convertit un score continu en code discret (-2, -1, 0, 1, 2).
+    
+    Args:
+        score: float, score entre -2 et +2
+        
+    Returns:
+        int: code de situation (-2, -1, 0, 1, 2)
+    """
+    if score > 1.5:
+        return 2  # SA
+    elif score > 0.5:
+        return 1  # A
+    elif score < -0.5:
+        return -1  # V
+    elif score < -1.5:
+        return -2  # SV
+    else:
+        return 0   # N
+
+
+def enhanced_decision(proba_dict, weights, df, param, current_time, regression=False):
+    """
+    Décision améliorée combinant :
+    - Seuils dynamiques
+    - Filtrage temporel
+    - Combinaison IA + Rules
+    - Détection de régime
+    
+    Args:
+        proba_dict: dict {model_name: proba_array}, probabilités par modèle
+        weights: dict {model_name: weight}, poids par modèle
+        df: DataFrame, données avec indicateurs
+        param: dict, paramètres de configuration
+        current_time: datetime, heure actuelle
+        regression: bool, si True utilise la logique RNN
+        
+    Returns:
+        int: code de situation final (-2, -1, 0, 1, 2)
+    """
+    # 1. Détection du régime du marché
+    regime = detect_market_regime(df)
+    
+    # 2. Calcul des bornes dynamiques
+    r2 = df['R2'].iloc[-1] if 'R2' in df.columns else 0.5
+    er = df['ER'].iloc[-1] if 'ER' in df.columns else 0.5
+    last_proba = proba_dict.get('LSTM', [0.5])[-1] if proba_dict.get('LSTM') else 0.5
+    
+    bornes = calcul_bornes_dynamiques(regression, param, df, last_proba, r2, er)
+    
+    # 3. Combinaison IA + Rules
+    final_score = weighted_decision(proba_dict, weights, df, bornes)
+    
+    # 4. Filtrage temporel
+    zone_filter = ZoneStabilityFilter(min_stability_time=300)
+    stable_score = zone_filter.update(final_score, bornes, current_time)
+    if stable_score is None:
+        return 0  # Pas de décision si instable
+    
+    # 5. Adaptation au régime
+    if regime in ["TRENDING_UP", "TRENDING_DOWN"]:
+        # Suivre la tendance (désactiver les inversions)
+        if (regime == "TRENDING_UP" and stable_score < 0) or (regime == "TRENDING_DOWN" and stable_score > 0):
+            return 0  # Éviter les signaux contraires à la tendance
+    
+    # 6. Discrétisation finale
+    return discretize_score(stable_score)
 
