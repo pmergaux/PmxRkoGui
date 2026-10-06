@@ -35,11 +35,10 @@ version_rnn = True
 TEST_PROBA = False
 
 class PmxRkoStrategy(Strategy):
-	def __init__(self, parent, config, option=None):
+	def __init__(self, parent, config):
 		super().__init__(parent, config)
 		self.backtest_mode = False
-		if option is not None:
-			set_option(option)
+		set_option(config.get("live", {}).get("option", "TFD"))
 		self.bricks = None
 		self.renko_size = config.get("parameters", {}).get("renko_size", 20)
 		self.display = None
@@ -52,6 +51,8 @@ class PmxRkoStrategy(Strategy):
 		self.z_proba_min = config.get("probability", {}).get("z_proba_min", 1.2)
 		self.slope_base = config.get("probability", {}).get("slope_base", 0.005)
 		self.v_thresh = config.get("probability", {}).get("v_thresh", 5)
+		self.zone_filter = ZoneStabilityFilter(utils.config_utils.VDIRECT, min_stability_time=self.interval)
+
 		#self.renko_buffer = self.load_buffer()  # Le collecteur de briques
 		#self.min_buffer_size = 50  # Seuil pour le refresh
 		self.force_strict_veto = False
@@ -485,6 +486,7 @@ class PmxRkoStrategy(Strategy):
 		return sens, is_strong_market_push, trend_down_valid, trend_up_valid
 
 	def run_trade(self):
+		ind_cfg = self.cfg.get("indicators_and_filters", {})
 		# Mode Backtest piloté par les briques pré-générées
 		if not self.backtest_mode:
 			# Les briques et le display global sont déjà injectés pas à pas par le backtester
@@ -515,7 +517,6 @@ class PmxRkoStrategy(Strategy):
 				except Exception as e:
 					print(f"err display 3 {e}")
 			# Extraction des configurations d'indicateurs et filtres depuis config
-			ind_cfg = self.cfg.get("indicators_and_filters", {})
 			if not version_rnn:
 				dj = decision_rates(self.df, ind_cfg)
 				reg_window = ind_cfg.get("regression", {}).get("window", 18)
@@ -542,7 +543,7 @@ class PmxRkoStrategy(Strategy):
 					print(f"bb err 2 {e}")
 					return
 			else:
-				self.to_follow(None, ind_cfg)
+				# self.to_follow(None, ind_cfg)
 				if TEST_PROBA and onDisplay:
 					proba = decision_ai(self.display, self.bricks, self.cfg, self.scaler, self.models)
 					if proba is None or len(proba) == 0:
@@ -578,10 +579,11 @@ class PmxRkoStrategy(Strategy):
 		# ============================================================================
 		
 		# 1. Préparation des données pour la décision améliorée
-		current_time = datetime.now()
-		r2 = dj['er'].iloc[-1] if dj is not None and 'er' in dj.columns else 0.5
-		er_val = dj['er'].iloc[-1] if dj is not None and 'er' in dj.columns else 0.5
-		
+		df_for_decision = self.display if self.display is not None else self.bricks
+		# Segment des 14 dernières briques Renko
+		reg_window = ind_cfg.get("regression", {}).get("window", 18)
+		y_seg = df_for_decision['close'].iloc[-reg_window:].values
+		_, _, _, r2, er_val = fast_stats_single(y_seg)
 		# 2. Collecte des probabilités de tous les modèles
 		proba_dict = {}
 		weights = self._param.get("weights", {})
@@ -597,20 +599,10 @@ class PmxRkoStrategy(Strategy):
 				proba_dict['default'] = [self.proba]
 		else:
 			proba_dict['default'] = [self.proba]
-		
+
+
 		# 3. Utilisation de la décision améliorée
 		# Vérifier si on a assez de données pour les indicateurs
-		if self.display is not None and len(self.display) > 0:
-			df_for_decision = self.display
-		else:
-			df_for_decision = self.bricks
-		
-		# Ajouter R2 et ER si disponibles
-		if 'R2' not in df_for_decision.columns and dj is not None and 'er' in dj.columns:
-			df_for_decision = df_for_decision.copy()
-			df_for_decision['R2'] = dj['er']  # Utiliser ER comme proxy pour R2
-			df_for_decision['ER'] = dj['er']
-		
 		# Appel à la décision hybride
 		try:
 			situation = enhanced_decision(
@@ -618,8 +610,8 @@ class PmxRkoStrategy(Strategy):
 				weights=weights,
 				df=df_for_decision,
 				param=self._param,
-				current_time=current_time,
-				regression=self.regression
+				r2=r2, er=er_val,
+				zone_filter=self.zone_filter
 			)
 		except Exception as e:
 			print(f"Erreur dans enhanced_decision: {e}")

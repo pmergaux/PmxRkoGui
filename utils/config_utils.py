@@ -31,7 +31,7 @@ config_base = {"parameters": params_base, "features": features_base, "lstm": lst
 trans = {"EMA": ["ema_period"], "RSI": ["rsi_period", "rsi_high", "rsi_low"], "MACD_hist": ["macd"],
          "CCI": ["cci__period", "cci_high", "cci_low"], "ATR}": ["atr_period"], "close":["close"], "time_live": ["time_live"]}
 
-def set_option(option):
+def set_option(option: str):
     global VSIMPLE, VTOTALE, VDIRECT
     # print(f" option {option} ")
     VSIMPLE = True if option[0] == 'T' else False

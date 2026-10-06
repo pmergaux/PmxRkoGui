@@ -44,7 +44,7 @@ def send_to_dashboard(pnl_list, result):
         pass # Le dashboard est fermé, on continue le backtest sans bugger
 
 
-def save_to_top10(config_std, score, result_copy, models, scaler, OPTION, trial=None):
+def save_to_top10(config_std, score, result_copy, models, scaler, trial=None):
     """Sauvegarde intelligente Top 10 avec RNN + TabICL"""
     try:
         nd = result_copy.get('days', 6)
@@ -121,7 +121,6 @@ def save_to_top10(config_std, score, result_copy, models, scaler, OPTION, trial=
             model, stats = model
             cntrl_jepa(model.state_dict(), config_std.get("jepa", {}))
         strategy_name = config_std.get('live', {}).get('name', 'unknown_strategy')
-        strategy_name = strategy_name + "_" + OPTION[0]+OPTION[1]+OPTION[2]
         target_col = config_std.get('target', {}).get('target_col', None)
         if target_col is not None and isinstance(target_col, list):
             target_col = target_col[0]
@@ -232,13 +231,13 @@ def run_backtest(config_std, OPTION, trial=None):
         delta = df_renko_test['time'].iloc[-1] - df_renko_test['time'].iloc[0]
         nb_jours = delta.total_seconds() / 86400.0
         if nb_jours < 1: nb_jours = 1.0  # Sécurité anti-division par zéro
-        print(f"size {len(df_renko_test)} days {nb_jours} version {config_std['live']['version']} "
-              f"VS {utils.config_utils.VSIMPLE}, VT {utils.config_utils.VTOTALE}, VD {utils.config_utils.VDIRECT} ")
-        pmxTest = PmxRkoBacktester(config_std, None, OPTION)
+        pmxTest = PmxRkoBacktester(config_std, None)
         #pmxTest.local = True
         pmxTest.scaler = scaler
         pmxTest.models = models
         pmxTest.all_bricks = df_renko_test.iloc[-400:]
+        print(f"size {len(df_renko_test)} days {nb_jours} version {config_std['live']['version']} "
+              f"VS {utils.config_utils.VSIMPLE}, VT {utils.config_utils.VTOTALE}, VD {utils.config_utils.VDIRECT} ")
 
         mini = 128
         for key, model in models.items():

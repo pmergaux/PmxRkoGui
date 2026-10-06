@@ -62,8 +62,8 @@ class MockConnexion:
         return self.backtester.close_position(msg)
 
 class PmxRkoBacktester(PmxRkoStrategy):
-    def __init__(self, config, ticks_df=None, option=None):
-        PmxRkoStrategy.__init__(self, None, config, option)
+    def __init__(self, config, ticks_df=None):
+        PmxRkoStrategy.__init__(self, None, config)
         self.backtest_mode = True
         self.spread_dollar = 2.97  # spread en $
         self.cl = MockConnexion(self)
@@ -197,8 +197,10 @@ class PmxRkoBacktester(PmxRkoStrategy):
         deb = jk - llp + cnt
         print(f"🚀 Lancement du backtest séquentiel de {llp-cnt} proba de {deb} à {jk}"
               f" briques Renko ...")
+        ind_cfg = self.cfg.get("indicators_and_filters", {})
+        reg_window = ind_cfg.get("regression", {}).get("window", 18)
         for i in range(deb, jk):
-            self.bricks = self.all_bricks.iloc[i-6:i]
+            self.bricks = self.all_bricks.iloc[i-reg_window:i]
             # Récupération des derniers prix pour le suivi des positions
             self.last_bid = self.all_bricks['close'].iloc[i]
             self.last_ask = self.last_bid + self.spread

@@ -122,6 +122,7 @@ def objective(trial):
     open_level_rnn = trial.suggest_float("open_level_rnn", 1.3, 2.0, step=0.1)
     close_level_tabicl = trial.suggest_float("close_level_tabicl", 0.0, 0.5, step=0.1)
     open_level_tabicl = trial.suggest_float("open_level_tabicl", 1.3, 2.0, step=0.1)
+
     rsi_period = trial.suggest_int('rsi_period', 8, 16)
     macd_fast = trial.suggest_int('macd_fast', 4, 13)
     macd_slow = trial.suggest_int('macd_slow', 10, 30)
@@ -199,95 +200,83 @@ def objective(trial):
     config["parameters"]["min_stability_time"] = min_stability_time
 
     # config["features"] = ["time_live", "close", "diff_close", "diff_ema", "RSI", "diff_macd"]
-    """
-    config["lstm"]["lstm_seq_len"] = trial.suggest_int('lstm_seq_len', 24, 64, step=8)
-    config["lstm"]["lstm_units"] = trial.suggest_int('lstm_units', 48, 240, step=48)
-
-    config["mlp"]["mlp_unit1"] = trial.suggest_int('mlp_unit1', 128, 256, step=128)
-    config["mlp"]["mlp_dropout"] = trial.suggest_float('mlp_dropout', 0.2, 0.5, step=0.1)
-    config["mlp"]["mlp_patience"] = trial.suggest_int('mlp_patience', 10, 20)
-
-    config["xgb"]["xgb_learning_rate"] = trial.suggest_categorical('xgb_learning_rate', [0.01, 0.03, 0.05])
-    config["xgb"]["xgb_max_depth"] = trial.suggest_categorical('xgb_max_depth', [4, 6, 8])
-    config["xgb"]["xgb_subsample"] = trial.suggest_categorical('xgb_subsample', [0.7, 0.8, 0.9])
-    config["xgb"]["xgb_colsample_bytree"] = trial.suggest_categorical('xgb_colsample_bytree', [0.7, 0.8, 0.9])
-    """
-    # Configuration du modèle JEPA optimisée
-    config["jepa"] = {
-        "SEQ_LEN": trial.suggest_categorical('SEQ_LEN', [32, 64, 96, 128]),
-        # Passage en discret pour cibler les tailles idéales
-        "BATCH_SIZE": 32,  # Fixé, pas besoin de le faire varier si 32 stabilise bien vos epochs
-        "HIDDEN_DIM": trial.suggest_categorical('HIDDEN_DIM', [64, 128, 256]),
-        # Élargissement léger si le modèle a besoin de capacité
-        "LATENT_DIM": trial.suggest_categorical('LATENT_DIM', [32, 64, 128]),  # Proportionnel au hidden_dim
-        "NUM_LAYERS": trial.suggest_int('NUM_LAYERS', 1, 2),  # Validé par vos tests précédents
-        "LR": trial.suggest_float('LR', 0.001, 0.01, log=True),
-        "NUM_EPOCHS": trial.suggest_int('NUM_EPOCHS', 10, 50, step=5)
-    }
-    
-    # Configuration pour les autres modèles
-    config["lstm"]["lstm_seq_len"] = trial.suggest_int('lstm_seq_len', 24, 64, step=8)
-    config["lstm"]["lstm_units"] = trial.suggest_int('lstm_units', 48, 240, step=48)
-    
-    config["mlp"]["mlp_unit1"] = trial.suggest_int('mlp_unit1', 128, 256, step=128)
-    config["mlp"]["mlp_dropout"] = trial.suggest_float('mlp_dropout', 0.2, 0.5, step=0.1)
-    config["mlp"]["mlp_patience"] = trial.suggest_int('mlp_patience', 10, 20)
-
-    config["xgb"]["xgb_learning_rate"] = trial.suggest_categorical('xgb_learning_rate', [0.01, 0.03, 0.05])
-    config["xgb"]["xgb_max_depth"] = trial.suggest_categorical('xgb_max_depth', [4, 6, 8])
-    config["xgb"]["xgb_subsample"] = trial.suggest_categorical('xgb_subsample', [0.7, 0.8, 0.9])
-    config["xgb"]["xgb_colsample_bytree"] = trial.suggest_categorical('xgb_colsample_bytree', [0.7, 0.8, 0.9])
-    
-    config["lgbm"]["lgbm_learning_rate"] = trial.suggest_categorical('lgbm_learning_rate', [0.01, 0.03, 0.05])
-    config["lgbm"]["lgbm_num_leaves"] = trial.suggest_categorical('lgbm_num_leaves', [15, 31, 63])
-    config["lgbm"]["lgbm_feature_fraction"] = trial.suggest_categorical('lgbm_feature_fraction', [0.7, 0.8, 0.9])
-    config["lgbm"]["lgbm_bagging_fraction"] = trial.suggest_categorical('lgbm_bagging_fraction', [0.7, 0.8, 0.9])
-    config["lgbm"]["lgbm_min_child_samples"] = trial.suggest_categorical('lgbm_min_child_samples', [20, 50])
-    config["lgbm"]["lgbm_early_stop_rounds"] = trial.suggest_categorical('lgbm_early_stop_rounds', [20, 50])
-    
-    config["gru"]["gru_seq_len"] = trial.suggest_int('gru_seq_len', 24, 64, step=8)
-    config["gru"]["gru_units1"] = trial.suggest_int("gru_units1", 32, 128, step=32)
-    config["gru"]["gru_units2"] = trial.suggest_int("gru_units2", 16, 64, step=16)
-    config["gru"]["gru_lr"] = trial.suggest_float("gru_lr", 0.0001, 0.01, log=True)
-    config["gru"]["gru_dropout"] = trial.suggest_float("gru_dropout", 0.1, 0.4, step=0.1)
-    config["gru"]["batch_size"] = trial.suggest_categorical("batch_size", [32, 128])
-    config["gru"]["gru_patience"] = 10
-    
-    config["catboost"] = {
-        "iterations": trial.suggest_int('iterations', 200, 2000, step=200),
-        "depth": trial.suggest_int('depth', 4, 10, step=1),
-        "learning_rate":  trial.suggest_float('learning_rate', 0.01, 0.31, step=0.05),
-        "l2_leaf_reg": trial.suggest_int('l2_leaf_reg', 1, 10, step=1)
-    }
-    
-    config["finjepa"] = {
-        # Longueur du contexte historique analysé par la Fin-JEPA
-        "context_len": trial.suggest_categorical('fin_context_len', [30, 45, 60, 90]),
-        # Horizon de prédiction (cible)
-        "target_len": trial.suggest_categorical('fin_target_len', [10, 15, 20, 30]),
-        # Taille de batch fixée pour la stabilité sur CPU
-        "batch_size": 32,
-        # Nombre d'époques resserré pour que l'entraînement reste instantané
-        "epochs": trial.suggest_int('fin_epochs', 2, 6),
-        # Taux d'apprentissage exploré sur une échelle logarithmique
-        "lr": trial.suggest_float('fin_lr', 5e-5, 1e-3, log=True),
-    }
-    
-    config["gru"]["batch_size"] = trial.suggest_categorical("batch_size", [32, 128])
-    config["gru"]["gru_patience"] = 10
-    config["catboost"] = {
-        "iterations": trial.suggest_int('iterations', 200, 2000, step=200),
-        "depth": trial.suggest_int('depth', 4, 10, step=1),
-        "learning_rate":  trial.suggest_float('learning_rate', 0.01, 0.31, step=0.05),
-        "l2_leaf_reg": trial.suggest_int('l2_leaf_reg', 1, 10, step=1)
-    }
+    chosen_string = trial.suggest_categorical("version", version_choices)
+    config['live']["version"] = [v.strip() for v in chosen_string.split(",")]
+    # config['live']['version'] = ['CAT']
+    # config["live"]["version"] = ['TAB']
+    # config["live"]["version"] = ['LGBM']
+    # config["live"]["version"] = ["JEPA"]
+    for vs in config['live']['version']:
+        if 'CAT' == vs:
+            config["catboost"] = {
+                "iterations": trial.suggest_int('iterations', 200, 2000, step=200),
+                "depth": trial.suggest_int('depth', 4, 10, step=1),
+                "learning_rate":  trial.suggest_float('learning_rate', 0.01, 0.31, step=0.05),
+                "l2_leaf_reg": trial.suggest_int('l2_leaf_reg', 1, 10, step=1)
+            }
+        if 'LGBM' == vs:
+            config["lgbm"] = {
+                "lgbm_learning_rate" : trial.suggest_categorical('lgbm_learning_rate', [0.01, 0.03, 0.05]),
+                "lgbm_num_leaves": trial.suggest_categorical('lgbm_num_leaves', [15, 31, 63]),
+                "lgbm_feature_fraction": trial.suggest_categorical('lgbm_feature_fraction', [0.7, 0.8, 0.9]),
+                "lgbm_bagging_fraction": trial.suggest_categorical('lgbm_bagging_fraction', [0.7, 0.8, 0.9]),
+                "lgbm_min_child_samples": trial.suggest_categorical('lgbm_min_child_samples', [20, 50]),
+                "lgbm_early_stop_rounds": trial.suggest_categorical('lgbm_early_stop_rounds', [20, 50]),
+            }
+        if 'FIMJEPA' == vs:
+            config["finjepa"] = {
+                # Longueur du contexte historique analysé par la Fin-JEPA
+                "context_len": trial.suggest_categorical('fin_context_len', [30, 45, 60, 90]),
+                # Horizon de prédiction (cible)
+                "target_len": trial.suggest_categorical('fin_target_len', [10, 15, 20, 30]),
+                # Taille de batch fixée pour la stabilité sur CPU
+                "batch_size": 32,
+                # Nombre d'époques resserré pour que l'entraînement reste instantané
+                "epochs": trial.suggest_int('fin_epochs', 2, 6),
+                # Taux d'apprentissage exploré sur une échelle logarithmique
+                "lr": trial.suggest_float('fin_lr', 5e-5, 1e-3, log=True),
+            }
+        if 'JEPA' == vs:
+            config["jepa"] = {
+                "SEQ_LEN": trial.suggest_categorical('SEQ_LEN', [32, 64, 96, 128]),
+                # Passage en discret pour cibler les tailles idéales
+                "BATCH_SIZE": 32,  # Fixé, pas besoin de le faire varier si 32 stabilise bien vos epochs
+                "HIDDEN_DIM": trial.suggest_categorical('HIDDEN_DIM', [64, 128, 256]),
+                # Élargissement léger si le modèle a besoin de capacité
+                "LATENT_DIM": trial.suggest_categorical('LATENT_DIM', [32, 64, 128]),  # Proportionnel au hidden_dim
+                "NUM_LAYERS": trial.suggest_int('NUM_LAYERS', 1, 2),  # Validé par vos tests précédents
+                "LR": trial.suggest_float('LR', 5e-4, 5e-3, log=True),
+                # Plage resserrée autour des zones de convergence stables
+                "NUM_EPOCHS": trial.suggest_int('NUM_EPOCHS', 1, 3),  # Un peu plus de temps de convergence
+                "INPUT_DIM": 6,
+        }
+        if 'LSTM' == vs:
+            config["lstm"]["lstm_seq_len"] = trial.suggest_int('lstm_seq_len', 24, 64, step=8)
+            config["lstm"]["lstm_units"] = trial.suggest_int('lstm_units', 48, 240, step=48)
+        if 'MLP' == vs:
+            config["mlp"]["mlp_unit1"] = trial.suggest_int('mlp_unit1', 128, 256, step=128)
+            config["mlp"]["mlp_dropout"] = trial.suggest_float('mlp_dropout', 0.2, 0.5, step=0.1)
+            config["mlp"]["mlp_patience"] = trial.suggest_int('mlp_patience', 10, 20)
+        if 'XGB' == vs:
+            config["xgb"]["xgb_learning_rate"] = trial.suggest_categorical('xgb_learning_rate', [0.01, 0.03, 0.05])
+            config["xgb"]["xgb_max_depth"] = trial.suggest_categorical('xgb_max_depth', [4, 6, 8])
+            config["xgb"]["xgb_subsample"] = trial.suggest_categorical('xgb_subsample', [0.7, 0.8, 0.9])
+            config["xgb"]["xgb_colsample_bytree"] = trial.suggest_categorical('xgb_colsample_bytree', [0.7, 0.8, 0.9])
+        if 'GRU' == vs:
+            config["gru"]["gru_seq_len"] = trial.suggest_int('gru_seq_len', 24, 64, step=8)
+            config["gru"]["gru_units1"] = trial.suggest_int("gru_units1", 32, 128, step=32)
+            config["gru"]["gru_units2"] = trial.suggest_int("gru_units2", 16, 64, step=16)
+            config["gru"]["gru_lr"] = trial.suggest_float("gru_lr", 0.0001, 0.01, log=True)
+            config["gru"]["gru_dropout"] = trial.suggest_float("gru_dropout", 0.1, 0.4, step=0.1)
+            config["gru"]["batch_size"] = trial.suggest_categorical("batch_size", [32, 128])
+            config["gru"]["gru_patience"] = 10
 
     config["target"]["target_col"] = [target_col]
 
     # 3. On redécoupe la chaîne pour retrouver votre liste de modèles
-    chosen_string = trial.suggest_categorical("version", version_choices)
-    config['live']["version"] = [v.strip() for v in chosen_string.split(",")]
-    
+    # config['live']["sl"] = trial.suggest_categorical('sl', optionSL)
+    # config['live']["tp"] = trial.suggest_categorical('tp', optionTP)
+
     # Optimisation de l'option VSIMPLE/VTOTALE/VDIRECT
     option_str = trial.suggest_categorical("option", ["TTT", "TTF", "TFT", "TFF", "FTT", "FTF", "FFT", "FFF"])
     config["live"]["option"] = option_str
@@ -321,7 +310,7 @@ def objective(trial):
         config['data'] = full_df.copy()
         print(
             f"✅ Trial {trial.number} | Fin: {last_date.strftime('%Y-%m-%d')} | rSize {current_renko_size:.1f} | Segment: {len(config['data'])} briques")
-        score, result_dict = run_backtest(config, OPTION, trial=trial)
+        score, result_dict = run_backtest(config, trial=trial)
         # ------------------------------------------------------> récupération de chaque test ici
         # On s'assure que le résultat existe et n'est pas un rejet/erreur
         if result_dict is not None and isinstance(result_dict, dict) and len(result_dict) > 0:
