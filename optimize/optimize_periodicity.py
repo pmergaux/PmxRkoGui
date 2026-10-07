@@ -20,7 +20,7 @@ from live.connexion import Connexion, select_positions_magic
 from utils.renko_utils import tick21renko, analyse_renko_iqr
 from decision.candle_decision import add_indicators_optimized, choix_features_numba, fast_stats_numba
 from decision.trading_decision import decision_ai, proba_final, IndicatorMonitor, calcul_bornes, calcul_situation, \
-    decision_rates_optimized, get_last_decision, trading_decision, monitoring, get_rnn_only_decision
+    decision_rates_optimized, get_last_decision, trading_decision, monitoring
 from utils.scaler_utils import load_and_transform
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(CURRENT_DIR)
@@ -77,6 +77,7 @@ class PmxRkoBacktester(PmxRkoStrategy):
         self.last_ask = 0.0
         self.ticks = ticks_df
         self.all_bricks = None
+        self.df_global = None
 
         self.local = False
 
@@ -118,10 +119,10 @@ class PmxRkoBacktester(PmxRkoStrategy):
 
         # 1. ON CALCULE TOUT UNE SEULE FOIS SUR TOUT LE DATASET GLOBAL
         # (Attention : assurez-vous que vos indicateurs n'utilisent pas de données du futur)
-        df_global = add_indicators_optimized(self.all_bricks, self.cfg)
-        df_global = choix_features_numba(df_global, self.cfg)
+        self.df_global = add_indicators_optimized(self.all_bricks, self.cfg)
+        self.df_global = choix_features_numba(self.df_global, self.cfg)
 
-        print(f"⏳ Étape 2/2 : Inférence par {len(self.all_bricks) - minimum} fenêtres glissantes sur {len(df_global)}...")
+        print(f"⏳ Étape 2/2 : Inférence par {len(self.all_bricks) - minimum} fenêtres glissantes sur {len(self.df_global)}...")
 
         if 'TABFF' in self.models:
             from tabicl import TabICLRegressor
@@ -134,9 +135,9 @@ class PmxRkoBacktester(PmxRkoStrategy):
                 raise e
         self.renko_time = self.all_bricks['time'].iloc[-1]
         # 2. La boucle se contente de trancher dans le DataFrame déjà calculé
-        for i in range(minimum, len(df_global)):
+        for i in range(minimum, len(self.df_global)):
             # Extraction de la tranche de 128 briques déjà prête
-            current_slice = df_global.iloc[i - minimum: i]
+            current_slice = self.df_global.iloc[i - minimum: i]
             # ----------------------------------------------------
             # SYNCHRONISATION ROBUSTE :
             # On récupère les indices exacts de current_slice pour extraire
@@ -160,7 +161,7 @@ class PmxRkoBacktester(PmxRkoStrategy):
                 probabilities_list.append(0.5)
                 all_probas_list.append({'default': 0.5})# Valeur neutre de secours
         print(
-            f"✅ sur {len(df_global)-minimum} {len(probabilities_list)} Prédictions terminées en {(time.time() - start):.1f} s. Démarrage du backtest rapide...")
+            f"✅ sur {len(self.df_global)-minimum} {len(probabilities_list)} Prédictions terminées en {(time.time() - start):.1f} s. Démarrage du backtest rapide...")
         return probabilities_list, all_probas_list
 
     def run_backtest_sequential(self, minimum=128):
@@ -222,6 +223,7 @@ class PmxRkoBacktester(PmxRkoStrategy):
                 """
             self.proba = proba_list[i-deb+cnt]
             self.all_probas = all_probas_list[i-deb+cnt]
+            self.display = self.df_global.iloc[i-reg_window:i]
             # Exécution de la stratégie sur cette brique
             self.run_trade()
 
@@ -238,9 +240,9 @@ class PmxRkoBacktester(PmxRkoStrategy):
     def open_position(self, sens):
         price = self.last_ask if sens == BUY else self.last_bid
         base = self.last_ask if sens == SELL else self.last_bid
-        # a modifier selon
-        self.ssl = self.live.get("sl", 0)
-        self.stp = self.live.get("tp", 0)
+        # a modifier selon normalement déjà positionnes dans pmxrko
+        # self.ssl = self.live.get("sl", 0)
+        # self.stp = self.live.get("tp", 0)
         # self.ssl = self.renko_size * 2
         # self.stp = self.renko_size
         self.ticket_counter += 1
@@ -253,11 +255,12 @@ class PmxRkoBacktester(PmxRkoStrategy):
             price_current=price,
             sl=(base - (self.live.get("sl", 0) * sens)) if self.live.get("sl", 0) > 0 else 0.0,
             tp=(base + (self.live.get("tp", 0) * sens)) if self.live.get("tp", 0) > 0 else 0.0,
-            #sl=(base - self.renko_size * 2 * sens),
-            #tp=(base + self.renko_size * sens),
+            # sl=(base - self.renko_size * 2 * sens),
+            # tp=(base + self.renko_size * sens),
             magic=self.live.get("magic", 125788)
         ))
         print(f"At {self.tickLast} ouverture d'une position {sens} price {price:.2f} {self.positions[-1].sl:.2f} {self.positions[-1].tp:.2f}")
+        return True
 
     def close_position(self, msg):
         if len(self.positions) == 0:

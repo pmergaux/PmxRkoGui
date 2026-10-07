@@ -321,6 +321,11 @@ def objective(trial):
                 "score": float(score),
                 "profit": float(result_dict.get('profit', 0)),
                 "trades": int(result_dict.get('trades', 0)),
+                "win_rate": float(result_dict.get('win_rate', 0)),
+                "markdown": float(result_dict.get('max_markdown', 0)),
+                "profit_factor": float(result_dict.get('profit_factor', 0)),
+                "days": float(result_dict.get('days', 0)),
+                "version": result_dict.get('version', ""),
                 "hcode": hcode
             }
             batch_data.append(test_result_item)
@@ -524,7 +529,6 @@ def load_partial():
         if "renko_volatility_ratio" not in config_base["features"]:
             prepare_renko(config_base, df_ticks)
         else:
-            import multiprocessing as mp
             os.makedirs(RENKO_CACHE_DIR, exist_ok=True)
             print(f"Démarrage du pré-calcul pour {len(RENKO_SIZES_TO_PREPARE)} tailles de Renko...")
             print(f"Les fichiers seront sauvegardés dans le dossier: '{RENKO_CACHE_DIR}'")

@@ -1219,7 +1219,7 @@ def calcul_bornes_dynamiques(param, df, r2, er):
 
     return dynamic_bornes
 
-def detect_market_regime(df, regime_params=None):
+def detect_market_regime(df, regime_params=None, slope=0.0, volatility=1.0):
     """
     Détecte le régime du marché avec des paramètres configurables.
     Args:
@@ -1241,21 +1241,25 @@ def detect_market_regime(df, regime_params=None):
         "volatility_threshold": 1.5,
         "adx_threshold": 25
     }
-    if regime_params:
+    if regime_params is not None:
         params.update(regime_params)
-    if len(df) < params["regression_window"] or 'close' not in df.columns:
+    reg_win = params["regression_window"]
+    if len(df) < reg_win  or 'close' not in df.columns:
         return "RANGING"
+    """
     # 1. Régression linéaire
-    close_prices = df['close'].iloc[-params["regression_window"]:].values
+    close_prices = df['close'].iloc[-reg_win:].values
     x = np.arange(len(close_prices))
     slope, _ = np.polyfit(x, close_prices, 1)
     # 2. Volatilité
     volatility = np.std(close_prices)
+    """
     if len(df) > params["volatility_window"]:
         volatility_mean = df['close'].rolling(params["volatility_window"]).std().iloc[-1]
         volatility_ratio = volatility / volatility_mean if volatility_mean != 0 else 1.0
     else:
         volatility_ratio = 1.0
+
     # 3. ADX
     adx_period = params["adx_period"]
     if 'high' in df.columns and 'low' in df.columns:
@@ -1267,14 +1271,21 @@ def detect_market_regime(df, regime_params=None):
             abs(df['low'] - df['close'].shift(1))
         ], axis=1).max(axis=1)
         atr = tr.rolling(adx_period).mean().iloc[-1]
-        if atr == 0:
-            atr = 1
+        if atr == 0 or pd.isna(atr):
+            atr = 1.0
         plus_di = 100 * (plus_dm.rolling(adx_period).mean() / atr)
         minus_di = 100 * (minus_dm.rolling(adx_period).mean() / atr)
-        dx = 100 * abs(plus_di - minus_di) / (plus_di + minus_di) if (plus_di + minus_di) != 0 else 0
-        adx = dx.rolling(adx_period).mean().iloc[-1] if len(dx) >= adx_period else 0
+        # CORRECTION ICI : Utilisation de np.where pour éviter le test 'if' sur une Série
+        denominator = plus_di + minus_di
+        dx = pd.Series(
+            np.where(denominator != 0, 100 * abs(plus_di - minus_di) / denominator, 0),
+            index=df.index
+        )
+        adx_series = dx.rolling(adx_period).mean()
+        adx = adx_series.iloc[-1] if len(dx) >= adx_period and not pd.isna(adx_series.iloc[-1]) else 0
     else:
         adx = 0
+
     # 4. Détection du régime
     if adx > params["adx_threshold"]:
         if slope > 0:
@@ -1383,14 +1394,27 @@ def discretize_score(score):
         return 0  # N (Neutral)
 
 def enhanced_decision(proba_dict, weights, df,
-                      param, r2, er, slope, zone_filter, time_current):
+                      param, r2, er, slope,volatility,
+                      zone_filter, time_current):
     # 1. Détection du régime
-    regime = detect_market_regime(df, param.get('market_regime', None))
-    bornes = calcul_bornes_dynamiques(param, df, r2, er)  # proba supprimé
+    try:
+        regime = detect_market_regime(df, param.get('market_regime', None), slope, volatility)
+    except Exception as e:
+        print(f"Error in detect_market_regime: {e}")
+        regime = ""
+    try:
+        bornes = calcul_bornes_dynamiques(param, df, r2, er)  # proba supprimé
+    except Exception as e:
+        print(f"Error in calcul_bornes_dynamiques: {e}")
+        bornes = [-2, -1, 0, 1, 2]
 
     # 1. Calcul du score continu (indépendant de VDIRECT)
     # slope calculée avec r2 et er dans pmxRko
-    final_score = weighted_decision(proba_dict, weights, df, bornes, slope)
+    try:
+        final_score = weighted_decision(proba_dict, weights, df, bornes, slope)
+    except Exception as e:
+        print(f"Error in weighted_decision: {e}")
+        final_score = 0
 
     # 2. Discrétisation (toujours [-2, -1, 0, 1, 2])
     zone = discretize_score(final_score)
@@ -1401,7 +1425,11 @@ def enhanced_decision(proba_dict, weights, df,
         zone = -zone  # [2, 1, 0, -1, -2]
 
     # 4. Filtrage temporel
-    if not zone_filter.update(zone, bornes, time_current):
+    try:
+        if not zone_filter.update(zone, bornes, time_current):
+            return 0
+    except Exception as e:
+        print(f"Error in zone_filter.update: {e}")
         return 0
 
     # 5. ✅ Adaptation au régime (corrigée)

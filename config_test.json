@@ -174,8 +174,8 @@
         "version": [
           "LGBM"
         ],
-        "sl": 60,
-        "tp": 90,
+        "sl": 0,
+        "tp": 0,
         "hcode": "f22ada8c3a02",
         "option": "TFT"
       }
