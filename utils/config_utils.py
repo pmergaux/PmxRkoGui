@@ -36,7 +36,7 @@ def set_option(option: str):
     # print(f" option {option} ")
     VSIMPLE = True if option[0] == 'T' else False
     VTOTALE = True if option[1] == 'T' else False
-    VDIRECT = True if option[2] == 'D' else False
+    VDIRECT = True if option[2] == 'T' else False
 
 
 def config_to_hash(config: dict) -> str:

@@ -15,9 +15,10 @@ from utils.config_utils import set_option
 from decision.candle_decision import fast_stats_single, is_market_exploding, calculate_atr_4sl, \
 	add_indicators_optimized, choix_features_numba, calculate_atr
 from decision.trading_decision import trading_decision, decision_bricks, get_last_decision, \
-	decision_ai, decision_rates, get_rnn_only_decision, proba_final, decision_monitor, \
+	decision_ai, decision_rates, proba_final, decision_monitor, \
 	calcul_situation, calcul_bornes, calcul_bornes_dynamiques, monitoring, IndicatorMonitor, \
-	enhanced_decision, ZoneStabilityFilter, weighted_decision, detect_market_regime, soft_zone_score, discretize_score
+	enhanced_decision, ZoneStabilityFilter, weighted_decision, detect_market_regime, soft_zone_score, discretize_score, \
+	get_open_decision, get_close_decision
 from utils.utils import NONE, BUY, SELL, CLOSE, FCLOSE, calculer_stats, JAUNE, RESET, VIOLET, ROUGE, VERT, BLEU, \
 	BLEU_CIEL, get_clean_timestamp, get_dynamic_sensitivity, get_linear_slope
 from datetime import datetime, timedelta, time
@@ -51,7 +52,7 @@ class PmxRkoStrategy(Strategy):
 		self.z_proba_min = config.get("probability", {}).get("z_proba_min", 1.2)
 		self.slope_base = config.get("probability", {}).get("slope_base", 0.005)
 		self.v_thresh = config.get("probability", {}).get("v_thresh", 5)
-		self.zone_filter = ZoneStabilityFilter(utils.config_utils.VDIRECT, min_stability_time=self.interval)
+		self.zone_filter = ZoneStabilityFilter(min_stability_time=self.interval)
 
 		#self.renko_buffer = self.load_buffer()  # Le collecteur de briques
 		#self.min_buffer_size = 50  # Seuil pour le refresh
@@ -556,7 +557,7 @@ class PmxRkoStrategy(Strategy):
 				return
 			if self.display['time'].iloc[-1] == self.renko_time:
 				self.display = self.display.iloc[:-1]
-			proba = decision_ai(self.display, self.bricks, self.cfg, self.scaler, self.models)
+			self.all_probas = decision_ai(self.display, self.bricks, self.cfg, self.scaler, self.models)
 			if self.regression:
 				"""
 				z_rnn, z_tab = decision_monitor(self.monitor_rnn, [proba_rnn[-1]], self.monitor_tabicl,
@@ -566,7 +567,7 @@ class PmxRkoStrategy(Strategy):
 				"""
 				self.monitor_indic.update(self.proba)
 			else:
-				self.proba = proba_final(proba, self._param.get("weights", None))
+				self.proba = proba_final(self.all_probas, self._param.get("weights", None))
 		else:
 			opTrade = True
 		# ------------------------- prises et application des décisions ---------------------
@@ -577,29 +578,21 @@ class PmxRkoStrategy(Strategy):
 		# ============================================================================
 		# NOUVELLE LOGIQUE HYBRIDE
 		# ============================================================================
-		
 		# 1. Préparation des données pour la décision améliorée
 		df_for_decision = self.display if self.display is not None else self.bricks
 		# Segment des 14 dernières briques Renko
-		reg_window = ind_cfg.get("regression", {}).get("window", 18)
+		reg_window = self.cfg.get('market_regime', {}).get("regression_window", 14)
 		y_seg = df_for_decision['close'].iloc[-reg_window:].values
-		_, _, _, r2, er_val = fast_stats_single(y_seg)
+		slope, _, _, r2, er_val = fast_stats_single(y_seg)
 		# 2. Collecte des probabilités de tous les modèles
 		proba_dict = {}
 		weights = self._param.get("weights", {})
 		
 		# Si on a plusieurs modèles, récupérer leurs prédictions
-		if hasattr(self, 'models') and self.models:
-			for model_name, model in self.models.items():
-				if model is not None:
-					# Pour l'instant, on utilise self.proba comme proba principale
-					# Dans une version future, on pourrait appeler chaque modèle
-					proba_dict[model_name] = [self.proba]
-			else:
-				proba_dict['default'] = [self.proba]
+		if hasattr(self, 'models') and self.all_probas is not None and len(self.all_probas) > 0:
+			proba_dict = self.all_probas
 		else:
 			proba_dict['default'] = [self.proba]
-
 
 		# 3. Utilisation de la décision améliorée
 		# Vérifier si on a assez de données pour les indicateurs
@@ -609,9 +602,10 @@ class PmxRkoStrategy(Strategy):
 				proba_dict=proba_dict,
 				weights=weights,
 				df=df_for_decision,
-				param=self._param,
-				r2=r2, er=er_val,
-				zone_filter=self.zone_filter
+				param=self.cfg,
+				r2=r2, er=er_val,slope=slope,
+				zone_filter=self.zone_filter,
+				time_current=self.tickLast
 			)
 		except Exception as e:
 			print(f"Erreur dans enhanced_decision: {e}")
@@ -628,11 +622,11 @@ class PmxRkoStrategy(Strategy):
 		#sens, is_strong_market_push, trend_down_valid, trend_up_valid = self.market_analysis(proba, z_indic, moy, z_means, True)
 
 		# Debug: Afficher le régime détecté
-		regime = detect_market_regime(self.display if self.display is not None else self.bricks)
+		regime = detect_market_regime(self.display if self.display is not None else self.bricks, self.cfg.get('market_regime', None))
 		if self.parent:
 			print(f"{BLEU_CIEL}[HYBRID] Régime: {regime}, Situation: {situation}, Proba: {proba:.4f}{RESET}")
 		
-		sigOpen = 0
+		sigOpen = get_open_decision(situation)
 		sigClose = 0
 		lp = len(self.positions)
 		if lp > 0:
@@ -644,10 +638,10 @@ class PmxRkoStrategy(Strategy):
 				try:
 					if not self.regression:
 						if version_rnn:
-							sigClose, sigOpen = get_rnn_only_decision(ls, position.price_current,
+							sigClose = get_close_decision(ls, position.price_current,
 																	  position.price_open,
 																	  self.ssl, self.stp,
-																	  situation,
+																	  situation, sigOpen,
 																	  True)
 						else:
 							sigClose, sigOpen, co_pure, co_end = trading_decision(ls, position.price_open,
@@ -664,10 +658,10 @@ class PmxRkoStrategy(Strategy):
 																				  config=ind_cfg)
 					else:
 						if version_rnn:
-							sigClose, sigOpen = get_rnn_only_decision(ls, position.price_current,
+							sigClose = get_close_decision(ls, position.price_current,
 																	  position.price_open,
 																	  self.ssl, self.stp,
-																	  situation,
+																	  situation, sigOpen,
 																	  True)
 				except Exception as e:
 					print(f"err Trading decision {e}")
@@ -692,6 +686,8 @@ class PmxRkoStrategy(Strategy):
 					askClose = True
 				"""
 				# comme avant
+				if sigClose == FCLOSE and sigOpen * ls > 0:
+					sigClose = NONE			# cloture inutile serait ré ouverte immédiatement
 				askClose = (sigClose > 3)
 				if askClose:
 					# print("ask close")
@@ -711,7 +707,7 @@ class PmxRkoStrategy(Strategy):
 			try:
 				if not self.regression:
 					if version_rnn:
-						sigClose, sigOpen = get_rnn_only_decision(NONE,0,0,0,0, situation,True)
+						pass
 					else:
 						sigClose, sigOpen, co_pure, co_end = trading_decision(NONE,
 																		  0.0,
@@ -725,13 +721,6 @@ class PmxRkoStrategy(Strategy):
 																		  self._param['close_sell'],
 																		  pente, r2, er, extra=extra,
 																		  trace=True, config=ind_cfg)
-				else:
-					if version_rnn:
-						sigClose, sigOpen = get_rnn_only_decision(NONE,
-																 0,0,
-																  self.ssl, self.stp,
-																  situation, True)
-
 			except Exception as e:
 				print(f"err trading decision 0 {self.live['name']}: {e}")
 				return

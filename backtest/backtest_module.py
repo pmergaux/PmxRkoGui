@@ -198,7 +198,7 @@ def save_to_top10(config_std, score, result_copy, models, scaler, trial=None):
         if os.path.exists(lock_dir):
             os.rmdir(lock_dir)
 
-def run_backtest(config_std, OPTION, trial=None):
+def run_backtest(config_std, trial=None):
     total_time = time.time()
     score = -9999.0
     # Initialisation globale (à faire une seule fois au lancement)
@@ -307,7 +307,7 @@ def run_backtest(config_std, OPTION, trial=None):
         try:
             score = trade_result['score']
             if score > 0:
-                save_to_top10(config_def, score, trade_result, models, scaler, OPTION, trial)
+                save_to_top10(config_def, score, trade_result, models, scaler, trial)
         except Exception as e:
             print(f"ERREUR dans save aucun trade ? : {e}")
             return score, {}

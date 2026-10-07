@@ -61,6 +61,7 @@ class Strategy(QThread):
         self.models = {}
         self.scaler = None
         self.proba = 0.0
+        self.all_probas = {}
         # Initialisation globale (à faire une seule fois au lancement)
         self.situation = 0
         self.regression = False

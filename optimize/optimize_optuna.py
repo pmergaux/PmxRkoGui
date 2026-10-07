@@ -1,5 +1,6 @@
 from mt5linux import MetaTrader5
 from datetime import datetime, timezone, timedelta
+import multiprocessing as mp
 
 from sympy.core import parameters
 
@@ -60,7 +61,7 @@ sys.path.append(ROOT_DIR)
 
 RENKO_CACHE_DIR = "/media/pierre/datad/data/renko_cache"
 TOTAL_MAX_TRIALS = 1024
-BATCH_TRIALS = 256  # Nombre maximal de trials exécutés avant de recycler le processus (RAM)
+BATCH_TRIALS = 2560  # Nombre maximal de trials exécutés avant de recycler le processus (RAM)
 OPTION = ['F', 'T', 'D']
 df_ticks = None
 df_renko = None
@@ -123,14 +124,14 @@ def objective(trial):
     close_level_tabicl = trial.suggest_float("close_level_tabicl", 0.0, 0.5, step=0.1)
     open_level_tabicl = trial.suggest_float("open_level_tabicl", 1.3, 2.0, step=0.1)
 
+    """
+    renko_size = round(trial.suggest_float('renko_size', 9.0, 22.1, step=0.1), 1)
+    ema_period = trial.suggest_int('ema_period', 6, 15)
     rsi_period = trial.suggest_int('rsi_period', 8, 16)
     macd_fast = trial.suggest_int('macd_fast', 4, 13)
     macd_slow = trial.suggest_int('macd_slow', 10, 30)
     macd_signal = trial.suggest_int('macd_signal', 3, 11)
-    """
-    renko_size = round(trial.suggest_float('renko_size', 9.0, 22.1, step=0.1), 1)
-    ema_period = trial.suggest_int('ema_period', 6, 15)
-    
+
     # Optimisation des bornes dynamiques
     threshold_sell = round(trial.suggest_float("threshold_sell", 0.15, 0.35, step=0.01), 2)
     close_buy = round(trial.suggest_float('close_buy', 0.3, 0.5, step=0.01), 2)
@@ -165,12 +166,12 @@ def objective(trial):
     }
     """
     config = copy.deepcopy(config_base)  # Utilisez une config "vierge"
-    """
+
     config["parameters"]["rsi_period"] = rsi_period
     config["parameters"]["macd"]["macd_fast"] = macd_fast
     config["parameters"]["macd"]["macd_slow"] = macd_slow
     config["parameters"]["macd"]["macd_signal"] = macd_signal
-    
+    """
     config["parameters"]["window_monitor"] = window_monitor
     config["parameters"]["close_level_rnn"] = close_level_rnn
     config["parameters"]["open_level_rnn"] = open_level_rnn
@@ -542,6 +543,7 @@ def load_partial():
     del df_ticks
 
 if __name__ == "__main__":
+    mp.set_start_method('spawn', force=True)
     config_path = os.path.join(ROOT_DIR, "config_test.json")
     if not os.path.exists(config_path):
         print(f"Fichier config_live.json manquant.")

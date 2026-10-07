@@ -75,7 +75,6 @@ class PmxRkoBacktester(PmxRkoStrategy):
 
         self.last_bid = 0.0
         self.last_ask = 0.0
-        self.last_time = None
         self.ticks = ticks_df
         self.all_bricks = None
 
@@ -113,6 +112,7 @@ class PmxRkoBacktester(PmxRkoStrategy):
     def generation_proba(self, minimum=128):
         start = time.time()
         probabilities_list = []
+        all_probas_list = []
 
         print("⏳ Étape 1/2 : Pré-calcul global des indicateurs et features...")
 
@@ -155,17 +155,19 @@ class PmxRkoBacktester(PmxRkoStrategy):
             proba_fin = proba_final(proba, self._param.get("weights", None))
             if proba_fin is not None and len(proba_fin) > 0:
                 probabilities_list.append(proba_fin[-1])
+                all_probas_list.append(proba)
             else:
-                probabilities_list.append(0.5)  # Valeur neutre de secours
+                probabilities_list.append(0.5)
+                all_probas_list.append({'default': 0.5})# Valeur neutre de secours
         print(
             f"✅ sur {len(df_global)-minimum} {len(probabilities_list)} Prédictions terminées en {(time.time() - start):.1f} s. Démarrage du backtest rapide...")
-        return probabilities_list
+        return probabilities_list, all_probas_list
 
     def run_backtest_sequential(self, minimum=128):
         self.monitor_indic = IndicatorMonitor(window_size=self.slope_window, min_samples=self.slope_window)
         self.monitor_means = IndicatorMonitor(window_size=self.slope_window, min_samples=self.slope_window)
         self.situation = 0
-        proba_list = self.generation_proba(minimum)
+        proba_list, all_probas_list = self.generation_proba(minimum)
         llp = len(proba_list)
         warm_up_limit = 0
         cnt = self.slope_window * self.slope_window
@@ -197,14 +199,13 @@ class PmxRkoBacktester(PmxRkoStrategy):
         deb = jk - llp + cnt
         print(f"🚀 Lancement du backtest séquentiel de {llp-cnt} proba de {deb} à {jk}"
               f" briques Renko ...")
-        ind_cfg = self.cfg.get("indicators_and_filters", {})
-        reg_window = ind_cfg.get("regression", {}).get("window", 18)
+        reg_window = self.cfg.get('market_regime', {}).get("regression_window", 14)
         for i in range(deb, jk):
             self.bricks = self.all_bricks.iloc[i-reg_window:i]
             # Récupération des derniers prix pour le suivi des positions
             self.last_bid = self.all_bricks['close'].iloc[i]
             self.last_ask = self.last_bid + self.spread
-            self.last_time = self.all_bricks['time'].iloc[i]
+            self.tickLast = self.all_bricks['time'].iloc[i]
 
             # Gestion du Stop Loss / Take Profit des positions ouvertes
             if len(self.positions) > 0:
@@ -220,6 +221,7 @@ class PmxRkoBacktester(PmxRkoStrategy):
                     self.close_position("tp")
                 """
             self.proba = proba_list[i-deb+cnt]
+            self.all_probas = all_probas_list[i-deb+cnt]
             # Exécution de la stratégie sur cette brique
             self.run_trade()
 
@@ -244,7 +246,7 @@ class PmxRkoBacktester(PmxRkoStrategy):
         self.ticket_counter += 1
         self.positions.append(Position(
             ticket=self.ticket_counter,
-            time_open=self.last_time,
+            time_open=self.tickLast,
             type=sens,
             volume=self.live.get("volume", 1.0),
             price_open=price,
@@ -255,13 +257,13 @@ class PmxRkoBacktester(PmxRkoStrategy):
             #tp=(base + self.renko_size * sens),
             magic=self.live.get("magic", 125788)
         ))
-        print(f"At {self.last_time} ouverture d'une position {sens} price {price:.2f} {self.positions[-1].sl:.2f} {self.positions[-1].tp:.2f}")
+        print(f"At {self.tickLast} ouverture d'une position {sens} price {price:.2f} {self.positions[-1].sl:.2f} {self.positions[-1].tp:.2f}")
 
     def close_position(self, msg):
         if len(self.positions) == 0:
             return True
         position = self.positions[0]
-        position.time_close = self.last_time
+        position.time_close = self.tickLast
         sens = position.type
         price = self.last_bid if sens == BUY else self.last_ask
         position.price_current = price
@@ -288,7 +290,7 @@ class PmxRkoBacktester(PmxRkoStrategy):
         profits = [pos.profit for pos in self.positions_history]
         total_trades = len(profits)
         total_profit = sum(profits)
-        print(f"At {self.last_time} fermeture d'une position {msg} price {price:.2f} profit {net_profit:.2f} total {total_profit:.2f} en {total_trades}")
+        print(f"At {self.tickLast} fermeture d'une position {msg} price {price:.2f} profit {net_profit:.2f} total {total_profit:.2f} en {total_trades}")
         return True
 
     def performance(self, trace=False):

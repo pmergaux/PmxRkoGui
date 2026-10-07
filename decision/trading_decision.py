@@ -295,24 +295,24 @@ def monitoring( proba, monitor_indic: IndicatorMonitor, monitor_means: Indicator
     z_means, _ = monitor_means.get_current_z()
     return val_clean, z_indic, z_means, moy
 
-def get_rnn_only_decision(current_position, current_price, entry_price,
-                          sl_dist, tp_dist, situation, trace=False):
-    """
-    prediction_prob: 0 à 1 (ex: 0.7 = forte proba de hausse)
-    buy_thr: ex 0.55 (seuil d'entrée long)
-    close_buy_thr: ex 0.50 (seuil de sortie long)
-    """
-    sigClose = 0
+def get_open_decision(situation):
     sigOpen = 0
-
-    # Entrées
     if utils.config_utils.VSIMPLE:
         if situation == 2: sigOpen = 1
         if situation == -2: sigOpen = -1
     else:
         if situation > 0: sigOpen = 1
         if situation < 0: sigOpen = -1
+    return sigOpen
 
+def get_close_decision(current_position, current_price, entry_price,
+                          sl_dist, tp_dist, situation, sigOpen, trace=False):
+    """
+    prediction_prob: 0 à 1 (ex: 0.7 = forte proba de hausse)
+    buy_thr: ex 0.55 (seuil d'entrée long)
+    close_buy_thr: ex 0.50 (seuil de sortie long)
+    """
+    sigClose = 0
     # --- 1. GESTION DES POSITIONS OUVERTES ---
     if current_position == 1:  # On est LONG
         # B. Sortie sur SL/TP dur
@@ -337,7 +337,7 @@ def get_rnn_only_decision(current_position, current_price, entry_price,
         print(
             f"{get_clean_timestamp()} sign={COLOR_c}{sens_lib[int(sigClose)]}{RESET}#{COLOR_o}{sens_lib[int(sigOpen)]}{RESET} "
             f"situ = {situation}")
-    return sigClose, sigOpen
+    return sigClose
 
 SA = 0
 A = 1
@@ -1120,11 +1120,10 @@ class ZoneStabilityFilter:
     Filtre de stabilité temporelle pour éviter les faux signaux.
     Ne valide une zone que si elle reste stable pendant un temps minimal.
     """
-    def __init__(self, tendance=True, min_stability_time=300):  # 5 min par défaut
+    def __init__(self, min_stability_time=300):  # 5 min par défaut
         self.min_stability_time = min_stability_time
         self.current_zone = None
         self.zone_start_time = None
-        self.tendance = tendance
         self.zone_history = deque(maxlen=10)  # Dernières 10 zones
 
     def update(self, proba, bornes, current_time):
@@ -1154,23 +1153,22 @@ class ZoneStabilityFilter:
             self.current_zone = zone
             self.zone_start_time = current_time
             self.zone_history.append((zone, current_time))
-            return NONE  # Changement de zone → pas de décision
+            return False  # Changement de zone → pas de décision
         else:
             # Vérifier si on est stable depuis assez longtemps
             if self.zone_start_time is not None:
                 stability_duration = (current_time - self.zone_start_time).total_seconds()
                 if stability_duration >= self.min_stability_time:
-                    return zone if self.tendance else zone * -1  # Zone stable → décision valide
-            return NONE  # Zone instable → pas de décision
+                    return True # Zone stable → décision valide
+            return False  # Zone instable → pas de décision
 
-def calcul_bornes_dynamiques(param, df, proba, r2, er):
+def calcul_bornes_dynamiques(param, df, r2, er):
     """
     Calcule des bornes dynamiques en fonction de la volatilité et de la confiance des modèles.
     Args:
         regression: bool, si True utilise la logique RNN
         param: dict, paramètres de configuration
         df: DataFrame, données avec indicateurs (ATR, etc.)
-        proba: float, dernière probabilité prédite
         r2: float, coefficient de détermination
         er: float, efficiency ratio
     Returns:
@@ -1288,7 +1286,7 @@ def detect_market_regime(df, regime_params=None):
     else:
         return "RANGING"
 
-def weighted_decision(proba_dict, weights, df, bornes):
+def weighted_decision(proba_dict, weights, df, bornes, slope):
     """
     Combine les prédictions de plusieurs modèles IA avec des règles métiers.
     Args:
@@ -1333,12 +1331,10 @@ def weighted_decision(proba_dict, weights, df, bornes):
         if macd < 0:
             avg_score *= 0.8
     # Exemple : Si la pente est forte → amplifier le score
-    if 'slope' in df.columns:
-        slope = df['slope'].iloc[-1]
-        if slope > 0.01:
-            avg_score *= 1.2
-        elif slope < -0.01:
-            avg_score *= 0.8
+    if slope > 0.01:
+        avg_score *= 1.2
+    elif slope < -0.01:
+        avg_score *= 0.8
     return avg_score
 
 def soft_zone_score(proba, bornes):
@@ -1386,48 +1382,46 @@ def discretize_score(score):
     else:
         return 0  # N (Neutral)
 
-def enhanced_decision(proba_dict, weights,
-                      df, param,
-                      r2, er, zone_filter):
-    """
-    Décision améliorée combinant :
-    - Seuils dynamiques
-    - Filtrage temporel
-    - Combinaison IA + Rules
-    - Détection de régime
-    Args:
-        proba_dict: dict {model_name: proba_array}, probabilités par modèle
-        weights: dict {model_name: weight}, poids par modèle
-        df: DataFrame, données avec indicateurs
-        param: dict, paramètres de configuration
-    Returns:
-        int: code de situation final (-2, -1, 0, 1, 2)
-    """
-    # 1. Détection du régime du marché
-    regime = detect_market_regime(df, param['market_regime'])
-    bornes = calcul_bornes_dynamiques(param, df, proba_dict, r2, er)
+def enhanced_decision(proba_dict, weights, df,
+                      param, r2, er, slope, zone_filter, time_current):
+    # 1. Détection du régime
+    regime = detect_market_regime(df, param.get('market_regime', None))
+    bornes = calcul_bornes_dynamiques(param, df, r2, er)  # proba supprimé
 
-    # 3. Combinaison IA + Rules
-    final_score = weighted_decision(proba_dict, weights, df, bornes)
+    # 1. Calcul du score continu (indépendant de VDIRECT)
+    # slope calculée avec r2 et er dans pmxRko
+    final_score = weighted_decision(proba_dict, weights, df, bornes, slope)
+
+    # 2. Discrétisation (toujours [-2, -1, 0, 1, 2])
+    zone = discretize_score(final_score)
+
+    # 3. ✅ APPLICATION DE VDIRECT (inversion si suiveur)
+    VDIRECT = utils.config_utils.VDIRECT
+    if not VDIRECT:  # VDIRECT=False = suiveur → on inverse les zones
+        zone = -zone  # [2, 1, 0, -1, -2]
 
     # 4. Filtrage temporel
-    current_time = time.time()
-    zone = zone_filter.update(final_score, bornes, current_time)
-    if zone == NONE:
-        return 0  # Pas de décision si instable
-    VSIMPLE = utils.config_utils.VSIMPLE
-    VTOTALE = utils.config_utils.VTOTALE
+    if not zone_filter.update(zone, bornes, time_current):
+        return 0
 
-    # === 9. Adaptation au régime (SEULEMENT si VDIRECT=True) ===
+    # 5. ✅ Adaptation au régime (corrigée)
     if regime in ["TRENDING_UP", "TRENDING_DOWN"]:
-        if (regime == "TRENDING_UP" and zone < 0) or (regime == "TRENDING_DOWN" and zone > 0):
-            return 0  # Bloquer signaux contraires en contre-tendance
+        if VDIRECT:  # Contre-tendance : on veut des signaux CONTRE la tendance
+            # Bloquer les signaux DANS le sens de la tendance
+            if (regime == "TRENDING_UP" and zone > 0) or (regime == "TRENDING_DOWN" and zone < 0):
+                return 0
+        else:  # Suiveur : on veut des signaux DANS le sens de la tendance
+            # Bloquer les signaux CONTRE la tendance
+            if (regime == "TRENDING_UP" and zone < 0) or (regime == "TRENDING_DOWN" and zone > 0):
+                return 0
 
-    # === 10. Logique VSIMPLE (zones extrêmes uniquement) ===
+    # 7. Logique VSIMPLE
+    VSIMPLE = utils.config_utils.VSIMPLE
     if VSIMPLE and abs(zone) < 2:
         return 0
 
-    # === 11. Logique VTOTALE (inversion en marché volatile) ===
+    # 8. Logique VTOTALE
+    VTOTALE = utils.config_utils.VTOTALE
     if VTOTALE and regime == "VOLATILE" and abs(zone) == 2:
         return -zone
 

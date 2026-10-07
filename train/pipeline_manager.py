@@ -4,6 +4,8 @@ import os
 import numpy as np
 import pandas as pd
 from tabicl import TabICLRegressor
+import torch
+from torch.utils.data import Dataset, DataLoader
 
 from decision.candle_decision import add_indicators_optimized, choix_features_numba, calculate_atr_4sl, calculate_atr
 from train.prediction import prediction, tabicl_predict
@@ -163,9 +165,6 @@ def prepare_jepa_data(df, brick_size, stats):
     """
     return features, raw_closes, stats
 
-
-import torch
-
 def create_jepa_windows(data: np.ndarray, context_len: int = 50, target_len: int = 10):
     """
     Découpe une série temporelle (ex: prix Renko, indicateurs) en fenêtres glissantes.
@@ -197,70 +196,69 @@ def create_jepa_windows(data: np.ndarray, context_len: int = 50, target_len: int
     return torch.tensor(np.array(contexts), dtype=torch.float32), \
         torch.tensor(np.array(targets), dtype=torch.float32)
 
+
+class NextCloseRenkoDataset(Dataset):
+    def __init__(
+            self,
+            df,
+            seq_len=64,
+            split="train",
+            train_ratio=0.8,
+            stats=None
+    ):
+        super().__init__()
+        self.seq_len = seq_len
+
+        if not isinstance(df, pd.DataFrame):
+            df = pd.DataFrame(df)
+
+        self.brick_size = float(abs(df["open_renko"].iloc[0] - df["close_renko"].iloc[0]))
+        df = df.reset_index(drop=True).sort_values(by="time").reset_index(drop=True)
+        split_idx = int(len(df) * train_ratio)
+
+        if split == "train":
+            self.df = df.iloc[:split_idx].copy().reset_index(drop=True)
+        else:
+            self.df = df.iloc[split_idx:].copy().reset_index(drop=True)
+
+        self.stats = stats
+        self.features, self.raw_closes = self._prepare_data(self.df)
+        self.num_samples = max(0, len(self.features) - self.seq_len)
+        # À la fin de __init__ ou _prepare_data +1 pour le rel_price de getitem
+        self.input_dim = self.features.shape[1] + 1
+        if self.num_samples == 0:
+            raise ValueError(f"Pas assez de briques ({len(self.features)}) pour séquence {self.seq_len}")
+
+    def _prepare_data(self, df):
+        features, raw_closes, self.stats = prepare_jepa_data(df, self.brick_size, self.stats)
+        return features, raw_closes
+
+    def __len__(self):
+        return self.num_samples
+
+    def __getitem__(self, idx):
+        # 64 briques visibles : [idx : idx + 64]
+        window_feat = self.features[idx: idx + self.seq_len].copy()
+        window_closes = self.raw_closes[idx: idx + self.seq_len].copy()
+
+        # 6e feature stationarisée : déplacement en briques par rapport à la première brique de la fenêtre
+        rel_price = ((window_closes - window_closes[0]) / self.brick_size)[:, np.newaxis]
+        visible_seq = torch.tensor(np.concatenate([window_feat, rel_price], axis=-1), dtype=torch.float32)
+
+        # 65ème brique (l'avenir) : idx + 64
+        last_visible_close = window_closes[-1]
+        target_65_close = self.raw_closes[idx + self.seq_len]
+
+        # Target = variation en briques de la 65ème par rapport à la 64ème
+        target_delta_bricks = torch.tensor(
+            (target_65_close - last_visible_close) / self.brick_size,
+            dtype=torch.float32
+        )
+
+        return visible_seq, target_delta_bricks, last_visible_close, target_65_close
+
+
 def prepare_jepa(df_bricks, jepa):
-    import torch
-    from torch.utils.data import Dataset, DataLoader
-
-    class NextCloseRenkoDataset(Dataset):
-        def __init__(
-                self,
-                df,
-                seq_len=64,
-                split="train",
-                train_ratio=0.8,
-                stats=None
-        ):
-            super().__init__()
-            self.seq_len = seq_len
-
-            if not isinstance(df, pd.DataFrame):
-                df = pd.DataFrame(df)
-
-            self.brick_size = float(abs(df["open_renko"].iloc[0] - df["close_renko"].iloc[0]))
-            df = df.reset_index(drop=True).sort_values(by="time").reset_index(drop=True)
-            split_idx = int(len(df) * train_ratio)
-
-            if split == "train":
-                self.df = df.iloc[:split_idx].copy().reset_index(drop=True)
-            else:
-                self.df = df.iloc[split_idx:].copy().reset_index(drop=True)
-
-            self.stats = stats
-            self.features, self.raw_closes = self._prepare_data(self.df)
-            self.num_samples = max(0, len(self.features) - self.seq_len)
-            # À la fin de __init__ ou _prepare_data +1 pour le rel_price de getitem
-            self.input_dim = self.features.shape[1] + 1
-            if self.num_samples == 0:
-                raise ValueError(f"Pas assez de briques ({len(self.features)}) pour séquence {self.seq_len}")
-
-        def _prepare_data(self, df):
-            features, raw_closes, self.stats = prepare_jepa_data(df, self.brick_size, self.stats)
-            return features, raw_closes
-
-        def __len__(self):
-            return self.num_samples
-
-        def __getitem__(self, idx):
-            # 64 briques visibles : [idx : idx + 64]
-            window_feat = self.features[idx: idx + self.seq_len].copy()
-            window_closes = self.raw_closes[idx: idx + self.seq_len].copy()
-
-            # 6e feature stationarisée : déplacement en briques par rapport à la première brique de la fenêtre
-            rel_price = ((window_closes - window_closes[0]) / self.brick_size)[:, np.newaxis]
-            visible_seq = torch.tensor(np.concatenate([window_feat, rel_price], axis=-1), dtype=torch.float32)
-
-            # 65ème brique (l'avenir) : idx + 64
-            last_visible_close = window_closes[-1]
-            target_65_close = self.raw_closes[idx + self.seq_len]
-
-            # Target = variation en briques de la 65ème par rapport à la 64ème
-            target_delta_bricks = torch.tensor(
-                (target_65_close - last_visible_close) / self.brick_size,
-                dtype=torch.float32
-            )
-
-            return visible_seq, target_delta_bricks, last_visible_close, target_65_close
-
     # 1. Chargement des données (Split chronologique 80/20)
     SEQ_LEN = jepa["SEQ_LEN"]
     print(f"Chargement des séquences de {SEQ_LEN} briques...")
