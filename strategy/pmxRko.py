@@ -33,6 +33,7 @@ ROOT_DIR = os.path.dirname(CURRENT_DIR)
 DATA_DIR = os.path.join(ROOT_DIR, "data")
 BUFFER_FILE = os.path.join(DATA_DIR, "accuracy_buffer.json")
 version_rnn = True
+version_enhanced = True
 TEST_PROBA = False
 
 class PmxRkoStrategy(Strategy):
@@ -52,7 +53,7 @@ class PmxRkoStrategy(Strategy):
         self.z_proba_min = config.get("probability", {}).get("z_proba_min", 1.2)
         self.slope_base = config.get("probability", {}).get("slope_base", 0.005)
         self.v_thresh = config.get("probability", {}).get("v_thresh", 5)
-        self.zone_filter = ZoneStabilityFilter(min_stability_time=self.interval)
+        self.zone_filter = ZoneStabilityFilter(min_stability_time=self._param.get("min_stability_time", 300))
 
         #self.renko_buffer = self.load_buffer()  # Le collecteur de briques
         #self.min_buffer_size = 50  # Seuil pour le refresh
@@ -543,37 +544,50 @@ class PmxRkoStrategy(Strategy):
         # ============================================================================
         # NOUVELLE LOGIQUE HYBRIDE
         # ============================================================================
-        # 1. Préparation des données pour la décision améliorée
-        reg_window = self.cfg.get('market_regime', {}).get("regression_window", 14)
-        # Segment des 14 dernières briques Renko
-        y_seg = self.display['close'].iloc[-reg_window:].values
-        slope, std, vol_log_pct, r2, er_val = fast_stats_single(y_seg)
-        # 2. Collecte des probabilités de tous les modèles
-        proba_dict = {}
-        weights = self._param.get("weights", {})
-
-        # Si on a plusieurs modèles, récupérer leurs prédictions
-        if hasattr(self, 'models') and self.all_probas is not None and len(self.all_probas) > 0:
-            proba_dict = self.all_probas
+        if version_enhanced:
+            # 1. Préparation des données pour la décision améliorée
+            reg_window = self.cfg.get('market_regime', {}).get("regression_window", 14)
+            # Segment des 14 dernières briques Renko
+            y_seg = self.display['close'].iloc[-reg_window:].values
+            slope, std, vol_log_pct, r2, er_val = fast_stats_single(y_seg)
+            # 2. Collecte des probabilités de tous les modèles
+            proba_dict = {}
+            # Si on a plusieurs modèles, récupérer leurs prédictions
+            if hasattr(self, 'models') and self.all_probas is not None and len(self.all_probas) > 0:
+                proba_dict = self.all_probas
+            else:
+                proba_dict['default'] = [self.proba]
+            # 3. Utilisation de la décision améliorée
+            # Vérifier si on a assez de données pour les indicateurs
+            # Appel à la décision hybride
+            try:
+                situation = enhanced_decision(
+                    proba_dict=proba_dict,
+                    weights=self._param.get("weights", {}),
+                    df=self.display,
+                    param=self.cfg,
+                    r2=r2, er=er_val,slope=slope,volatility=std,
+                    zone_filter=self.zone_filter,
+                    time_current=self.tickLast
+                )
+            except Exception as e:
+                print(f"Erreur dans enhanced_decision: {e}")
+                # Retour à l'ancienne méthode en cas d'erreur
+                bornes = calcul_bornes(self.regression, self._param)
+                if utils.config_utils.VDIRECT:
+                    dest = [-2, -1, 0, 1, 2]
+                else:
+                    dest = [2, 1, 0, -1, -2]
+                situation = calcul_situation(self.monitor_indic, self.bricks.tail(4), bornes, dest, True)
+            # Debug: Afficher le régime détecté
+            try:
+                regime = detect_market_regime(self.display, self.cfg.get('market_regime', None), slope, std)
+                if self.parent:
+                    print(
+                        f"{BLEU_CIEL}[HYBRID] Régime: {regime}, Situation: {situation}, Proba: {proba:.4f}{RESET}")
+            except:
+                print("Error PmxRko in detect_market_regime")
         else:
-            proba_dict['default'] = [self.proba]
-
-        # 3. Utilisation de la décision améliorée
-        # Vérifier si on a assez de données pour les indicateurs
-        # Appel à la décision hybride
-        try:
-            situation = enhanced_decision(
-                proba_dict=proba_dict,
-                weights=weights,
-                df=self.display,
-                param=self.cfg,
-                r2=r2, er=er_val,slope=slope,volatility=std,
-                zone_filter=self.zone_filter,
-                time_current=self.tickLast
-            )
-        except Exception as e:
-            print(f"Erreur dans enhanced_decision: {e}")
-            # Retour à l'ancienne méthode en cas d'erreur
             bornes = calcul_bornes(self.regression, self._param)
             if utils.config_utils.VDIRECT:
                 dest = [-2, -1, 0, 1, 2]
@@ -585,13 +599,6 @@ class PmxRkoStrategy(Strategy):
             situation = blocked * 2
         #sens, is_strong_market_push, trend_down_valid, trend_up_valid = self.market_analysis(proba, z_indic, moy, z_means, True)
 
-        # Debug: Afficher le régime détecté
-        try:
-            regime = detect_market_regime(self.display, self.cfg.get('market_regime', None), slope, std)
-            if self.parent:
-                print(f"{BLEU_CIEL}[HYBRID] Régime: {regime}, Situation: {situation}, Proba: {proba:.4f}{RESET}")
-        except:
-            print("Error PmxRko in detect_market_regime")
         sigOpen = get_open_decision(situation)
         sigClose = 0
         lp = len(self.positions)

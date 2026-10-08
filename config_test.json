@@ -12,6 +12,7 @@
           "macd_signal": 7
         },
         "tabicl_window": 64,
+        "min_stability_time": 300,
         "weights": {
           "TAB": 7,
           "TABFF": 7,

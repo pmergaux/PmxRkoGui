@@ -60,9 +60,8 @@ ROOT_DIR = os.path.dirname(CURRENT_DIR)
 sys.path.append(ROOT_DIR)
 
 RENKO_CACHE_DIR = "/media/pierre/datad/data/renko_cache"
-TOTAL_MAX_TRIALS = 1024
+TOTAL_MAX_TRIALS = 1024+1024
 BATCH_TRIALS = 2560  # Nombre maximal de trials exécutés avant de recycler le processus (RAM)
-OPTION = ['F', 'T', 'D']
 df_ticks = None
 df_renko = None
 config_base = {}
@@ -224,7 +223,7 @@ def objective(trial):
                 "lgbm_min_child_samples": trial.suggest_categorical('lgbm_min_child_samples', [20, 50]),
                 "lgbm_early_stop_rounds": trial.suggest_categorical('lgbm_early_stop_rounds', [20, 50]),
             }
-        if 'FIMJEPA' == vs:
+        if 'FINJEPA' == vs:
             config["finjepa"] = {
                 # Longueur du contexte historique analysé par la Fin-JEPA
                 "context_len": trial.suggest_categorical('fin_context_len', [30, 45, 60, 90]),
