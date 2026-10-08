@@ -309,42 +309,33 @@ def fast_stats_single(y_seg):
     """
     n = len(y_seg)
     x = np.arange(n)
-
     # 1. Moyennes
     x_mean = (n - 1) / 2.0  # Moyenne de np.arange(n)
     y_mean = np.mean(y_seg)
-
     # 2. Composantes pour la régression (Moindres Carrés)
     x_diff = x - x_mean
     y_diff = y_seg - y_mean
-
     ss_x = np.sum(x_diff ** 2)
     ss_xy = np.sum(x_diff * y_diff)
-
     # 3. PENTE ($/brique)
     pente = ss_xy / ss_x if ss_x != 0 else 0
-
     # 4. ÉCART-TYPE ($)
     std = np.std(y_seg)
-
     # 5. VOLATILITÉ LOGARITHMIQUE (%)
     # On évite le log(0) ou valeurs négatives au cas où
     with np.errstate(divide='ignore', invalid='ignore'):
         log_returns = np.diff(np.log(y_seg))
         vol_log_pct = np.std(log_returns) * 100 if len(log_returns) > 0 else 0
-
     # 6. R2 (Coefficient de détermination)
     y_hat = pente * x_diff + y_mean
     ss_res = np.sum((y_seg - y_hat) ** 2)
     ss_tot = np.sum(y_diff ** 2)
-
     r2 = 1 - (ss_res / ss_tot) if ss_tot != 0 else 0
-
+    max(0.0, min(1.0, r2))  # Clamp entre 0 et 1
     # 7. ER (Efficiency Ratio)
     change = np.abs(y_seg[-1] - y_seg[0])
     vol_abs = np.sum(np.abs(np.diff(y_seg)))
     er = change / vol_abs if vol_abs != 0 else 0
-
     return pente, std, vol_log_pct, r2, er
 
 def fast_r2(df, window=14):

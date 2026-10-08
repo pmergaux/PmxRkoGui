@@ -66,8 +66,7 @@ class ExecutionTab(QWidget):
             else:
                 # C'est une stratégie live
                 if "pmxRKO" in key:
-                    option = get_last_three_chars(key)
-                    sim = PmxRkoStrategy(self, strategy_cfg, option)
+                    sim = PmxRkoStrategy(self, strategy_cfg)
                     sim.lance()
                     self.simulators.append(sim)
                     self.parent.start_execution(sim, 1000)

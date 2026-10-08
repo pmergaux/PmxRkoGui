@@ -1060,3 +1060,4 @@ date;opération;stratégie;symbol;sens;date ouv.;date signal;volume;prix ouv;pri
 2026-09-28 09:34:05.761924;Close OK. order_send(): by;pmxRKO;ETHUSD;buy;0.1;2658.25;2640.85;2641.05;2640.55;0.00;-1.53;-1.56;norm
 2026-09-28 17:17:36.224272;Close OK. order_send(): by;pmxRKO;ETHUSD;sell;0.1;2640.75;2658.05;2658.35;2658.65;0.00;-1.52;-1.57;norm
 2026-09-28 17:36:05.460209;Close OK. order_send(): by;pmxRKO;ETHUSD;buy;0.1;2658.35;2669.85;2670.05;2670.05;0.00;1.01;1.03;norm
+2026-10-08 21:20:12.768899;Close OK. order_send(): by;pmxRKO;ETHUSD;buy;1.0;2412.24;2452.26;2451.96;2451.96;0.00;35.69;35.43;sltp

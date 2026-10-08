@@ -44,7 +44,7 @@ def send_to_dashboard(pnl_list, result):
         pass # Le dashboard est fermé, on continue le backtest sans bugger
 
 
-def save_to_top10(config_std, score, result_copy, models, scaler, OPTION, trial=None):
+def save_to_top10(config_std, score, result_copy, models, scaler, trial=None):
     """Sauvegarde intelligente Top 10 avec RNN + TabICL"""
     try:
         nd = result_copy.get('days', 6)
@@ -89,7 +89,7 @@ def save_to_top10(config_std, score, result_copy, models, scaler, OPTION, trial=
         # Si on a déjà 10 modèles → on supprime le pire si le nouveau est meilleur
         if len(scores) > 0:
             scores.sort(reverse=True)  # du meilleur au pire
-        if len(scores) >= 4:
+        if len(scores) >= 5:
             # recherche si déjà existant
             worst_score = scores[-1][0]
             if score <= worst_score:
@@ -121,7 +121,6 @@ def save_to_top10(config_std, score, result_copy, models, scaler, OPTION, trial=
             model, stats = model
             cntrl_jepa(model.state_dict(), config_std.get("jepa", {}))
         strategy_name = config_std.get('live', {}).get('name', 'unknown_strategy')
-        strategy_name = strategy_name + "_" + OPTION[0]+OPTION[1]+OPTION[2]
         target_col = config_std.get('target', {}).get('target_col', None)
         if target_col is not None and isinstance(target_col, list):
             target_col = target_col[0]
@@ -199,7 +198,7 @@ def save_to_top10(config_std, score, result_copy, models, scaler, OPTION, trial=
         if os.path.exists(lock_dir):
             os.rmdir(lock_dir)
 
-def run_backtest(config_std, OPTION, trial=None):
+def run_backtest(config_std, trial=None):
     total_time = time.time()
     score = -9999.0
     # Initialisation globale (à faire une seule fois au lancement)
@@ -232,13 +231,13 @@ def run_backtest(config_std, OPTION, trial=None):
         delta = df_renko_test['time'].iloc[-1] - df_renko_test['time'].iloc[0]
         nb_jours = delta.total_seconds() / 86400.0
         if nb_jours < 1: nb_jours = 1.0  # Sécurité anti-division par zéro
-        print(f"size {len(df_renko_test)} days {nb_jours} version {config_std['live']['version']} "
-              f"VS {utils.config_utils.VSIMPLE}, VT {utils.config_utils.VTOTALE}, VD {utils.config_utils.VDIRECT} ")
-        pmxTest = PmxRkoBacktester(config_std, None, OPTION)
+        pmxTest = PmxRkoBacktester(config_std, None)
         #pmxTest.local = True
         pmxTest.scaler = scaler
         pmxTest.models = models
         pmxTest.all_bricks = df_renko_test.iloc[-400:]
+        print(f"size {len(df_renko_test)} days {nb_jours} version {config_std['live']['version']} "
+              f"VS {utils.config_utils.VSIMPLE}, VT {utils.config_utils.VTOTALE}, VD {utils.config_utils.VDIRECT} ")
 
         mini = 128
         for key, model in models.items():
@@ -308,7 +307,7 @@ def run_backtest(config_std, OPTION, trial=None):
         try:
             score = trade_result['score']
             if score > 0:
-                save_to_top10(config_def, score, trade_result, models, scaler, OPTION, trial)
+                save_to_top10(config_def, score, trade_result, models, scaler, trial)
         except Exception as e:
             print(f"ERREUR dans save aucun trade ? : {e}")
             return score, {}

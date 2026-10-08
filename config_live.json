@@ -1,28 +1,32 @@
 {
-    "pmxRKO_FTD": {
+    "pmxRKO": {
         "parameters": {
-            "renko_size": 15.0,
-            "ema_period": 9,
-            "rsi_period": 9,
+            "renko_size": 11.3,
+            "ema_period": 6,
+            "rsi_period": 15,
             "rsi_high": 70,
             "rsi_low": 30,
             "macd": {
-                "macd_fast": 9,
-                "macd_slow": 18,
-                "macd_signal": 7
+                "macd_fast": 12,
+                "macd_slow": 25,
+                "macd_signal": 11
             },
             "tabicl_window": 64,
+            "min_stability_time": 600,
             "weights": {
-                "TAB": 5,
-                "TABFF": 7,
-                "CAT": 3,
-                "LGBM": 3,
-                "JEPA": 9
+                "LSTM": 7,
+                "JEPA": 3,
+                "TAB": 2,
+                "TABFIN": 2,
+                "FINJEPA": 5,
+                "CAT": 5,
+                "XGB": 5,
+                "LGBM": 3
             },
-            "close_sell": 0.53,
-            "threshold_sell": 0.18,
-            "close_buy": 0.45,
-            "threshold_buy": 0.71,
+            "close_sell": 0.65,
+            "threshold_sell": 0.24,
+            "close_buy": 0.46,
+            "threshold_buy": 0.75,
             "window_monitor": 0,
             "open_level_rnn": 1.3,
             "close_level_rnn": 0.3,
@@ -36,6 +40,13 @@
             "slope_base": 0.004,
             "z_proba_min": 1.2,
             "v_thresh": 5000
+        },
+        "market_regime": {
+            "regression_window": 20,
+            "adx_period": 14,
+            "volatility_window": 50,
+            "volatility_threshold": 1.5,
+            "adx_threshold": 25
         },
         "indicators_and_filters": {
             "atr": {
@@ -76,7 +87,7 @@
             "diff_macd"
         ],
         "target": {
-            "target_col": "diff_ema",
+            "target_col": "diff_rsi",
             "target_type": "diff_scaled",
             "target_include": false
         },
@@ -89,14 +100,22 @@
             "close_sens": true
         },
         "jepa": {
-            "SEQ_LEN": 96,
+            "SEQ_LEN": 64,
             "BATCH_SIZE": 32,
-            "HIDDEN_DIM": 128,
-            "LATENT_DIM": 64,
-            "NUM_LAYERS": 1,
-            "LR": 0.004525326002107,
-            "NUM_EPOCHS": 22,
-            "INPUT_DIM": 6
+            "HIDDEN_DIM": 64,
+            "LATENT_DIM": 32,
+            "NUM_LAYERS": 2,
+            "LR": 0.001,
+            "NUM_EPOCHS": 3,
+            "INPUT_DIM": 6,
+            "ACTIVATION_TYPE": "sigmoid"
+        },
+        "finjepa": {
+            "context_len": 60,
+            "target_len": 15,
+            "batch_size": 32,
+            "epochs": 5,
+            "lr": 0.0001
         },
         "lstm": {
             "lstm_seq_len": 56,
@@ -137,30 +156,31 @@
             "gru_patience": 10
         },
         "catboost": {
-            "iterations": 800,
-            "depth": 7,
-            "learning_rate": 0.060000000000000005,
-            "l2_leaf_reg": 2
+            "iterations": 600,
+            "depth": 8,
+            "learning_rate": 0.26,
+            "l2_leaf_reg": 8
         },
         "live": {
             "symbol": "ETHUSD",
-            "lot_size": 0.1,
+            "lot_size": 1.0,
             "timeframe": "1h",
-            "volume": 0.1,
+            "volume": 1.0,
             "magic": 125799,
-            "mt5_login": 267150,
+            "mt5_login": 413820,
             "mt5_password": "axa77Garp&.",
             "mt5_server": "FusionMarkets-Live",
-            "port": 18812,
-            "mt5_path": "/home/pierre/.wine/drive_c/Program Files/MetaTrader 5/terminal64.exe",
+            "port": 18813,
+            "mt5_path": "/home/pierre/.wine/drive_c/Program Files/MetaTrader 5 Demo/terminal64.exe",
             "name": "pmxRKO",
             "version": [
                 "CAT",
                 "TAB"
             ],
-            "sl": 90,
-            "tp": 90,
-            "hcode": "638acdeb1e3e"
+            "sl": 0,
+            "tp": 0,
+            "hcode": "c5078b198497",
+            "option": "FFT"
         }
     }
 }

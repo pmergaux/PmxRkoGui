@@ -61,6 +61,7 @@ class Strategy(QThread):
         self.models = {}
         self.scaler = None
         self.proba = 0.0
+        self.all_probas = {}
         # Initialisation globale (à faire une seule fois au lancement)
         self.situation = 0
         self.regression = False
@@ -166,12 +167,11 @@ class Strategy(QThread):
             self.last_open_time = None
             return False
         return True
-
+    """
     def to_be_opened(self, sens, trace=True):
         if spread_dict[self.symbol] < self.spread:
             return NONE
         return sens
-
     def to_be_closed(self, sens, position, trace=True):
         rc = NONE
         msg = ''
@@ -231,11 +231,10 @@ class Strategy(QThread):
         pp, bal = 0.0, 0.1
         if VERSION == '0.0.2' and self._param.get('risk', 0.0) != 0:
             pp = -position.profit
-            """
+            
             # a mettre après if..
-            elif isinstance(self, bt.Strategy):
-                    bal = bt.Strategy(self).broker.getcash()
-            """
+            #elif isinstance(self, bt.Strategy):                    bal = bt.Strategy(self).broker.getcash()
+            
             if self.cl is not None:
                 bal = self.cl.account_info().balance * (self._param['risk'] / 100)
             else:
@@ -261,7 +260,7 @@ class Strategy(QThread):
             else:
                 msg = 'sens'
         return rc, msg
-
+    """
     def close_all(self, sens, positions, msg):
         for position in positions:
             ls = BUY if position.type == MetaTrader5.POSITION_TYPE_BUY else SELL
