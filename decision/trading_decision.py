@@ -1451,5 +1451,4 @@ def enhanced_decision(proba_dict, weights, df,
     VTOTALE = utils.config_utils.VTOTALE
     if VTOTALE and regime == "VOLATILE" and abs(zone) == 2:
         return -zone, regime
-
     return zone, regime

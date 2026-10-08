@@ -778,3 +778,4 @@ def check_telegram_acknowledgment(last_update_id=0):
     except Exception as e:
         print(f"⚠️ Erreur lecture Telegram : {e}")
         return False, last_update_id
+

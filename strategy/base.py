@@ -391,3 +391,4 @@ class Strategy(QThread):
         """
         print(datetime.now(),'start', self.live['name'], self.live['symbol'])
         #self.timer = Periodic_Timer_Thread(interval=period, function=self.run, comment=self.live['symbol'])
+

@@ -299,7 +299,6 @@ def train_all_models(config_std, df, trial):
         df_renko = choix_features_numba(df_renko, cfg)
         if "renko_volatility_ratio" in cfg["features"] and "renko_volatility_ratio" not in df_renko.columns:
             raise ValueError("renko_volatility_ratio missing choix add_indic")
-
         if df_renko is None or len(df_renko) < 200:
             print("❌ Pas assez de données après feature engineering")
             return {}
