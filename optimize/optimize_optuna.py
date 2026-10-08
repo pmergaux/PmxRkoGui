@@ -202,10 +202,10 @@ def objective(trial):
     # config["features"] = ["time_live", "close", "diff_close", "diff_ema", "RSI", "diff_macd"]
     chosen_string = trial.suggest_categorical("version", version_choices)
     config['live']["version"] = [v.strip() for v in chosen_string.split(",")]
-    # config['live']['version'] = ['CAT']
-    # config["live"]["version"] = ['TAB']
-    # config["live"]["version"] = ['LGBM']
-    # config["live"]["version"] = ["JEPA"]
+    #config['live']['version'] = ['CAT']
+    #config["live"]["version"] = ['TAB']
+    #config["live"]["version"] = ['LGBM']
+    #config["live"]["version"] = ["JEPA"]
     for vs in config['live']['version']:
         if 'CAT' == vs:
             config["catboost"] = {

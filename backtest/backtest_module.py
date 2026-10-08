@@ -89,7 +89,7 @@ def save_to_top10(config_std, score, result_copy, models, scaler, trial=None):
         # Si on a déjà 10 modèles → on supprime le pire si le nouveau est meilleur
         if len(scores) > 0:
             scores.sort(reverse=True)  # du meilleur au pire
-        if len(scores) >= 4:
+        if len(scores) >= 5:
             # recherche si déjà existant
             worst_score = scores[-1][0]
             if score <= worst_score:

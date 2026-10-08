@@ -331,35 +331,12 @@ def fast_stats_single(y_seg):
     ss_res = np.sum((y_seg - y_hat) ** 2)
     ss_tot = np.sum(y_diff ** 2)
     r2 = 1 - (ss_res / ss_tot) if ss_tot != 0 else 0
+    max(0.0, min(1.0, r2))  # Clamp entre 0 et 1
     # 7. ER (Efficiency Ratio)
     change = np.abs(y_seg[-1] - y_seg[0])
     vol_abs = np.sum(np.abs(np.diff(y_seg)))
     er = change / vol_abs if vol_abs != 0 else 0
     return pente, std, vol_log_pct, r2, er
-
-def calculate_R2(df, window=14):
-    """
-    Calcule le R² (coefficient de détermination) sur les briques Renko.
-    Args:
-        df: DataFrame avec colonne 'close'
-        window: int, taille de la fenêtre pour la régression
-    Returns:
-        float: R² entre 0 et 1
-    """
-    if len(df) < window or 'close' not in df.columns:
-        return 0.5  # Valeur neutre par défaut
-    close_prices = df['close'].iloc[-window:].values
-    x = np.arange(window)
-    # Régression linéaire : y = a*x + b
-    A = np.vstack([x, np.ones(len(x))]).T
-    a, b = np.linalg.lstsq(A, close_prices, rcond=None)[0]
-    # Prédictions
-    y_pred = a * x + b
-    # R² = 1 - SS_res / SS_tot
-    ss_res = np.sum((close_prices - y_pred) ** 2)
-    ss_tot = np.sum((close_prices - np.mean(close_prices)) ** 2)
-    r2 = 1 - (ss_res / ss_tot) if ss_tot != 0 else 0.5
-    return max(0.0, min(1.0, r2))  # Clamp entre 0 et 1
 
 def fast_r2(df, window=14):
     """

@@ -16,8 +16,8 @@
         "weights": {
           "TAB": 7,
           "TABFF": 7,
-          "CAT": 3,
           "LGBM": 3,
+          "CAT": 3,
           "JEPA": 7,
           "TABFIN": 7,
           "FINJEPA": 7

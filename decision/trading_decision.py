@@ -1407,7 +1407,6 @@ def enhanced_decision(proba_dict, weights, df,
     except Exception as e:
         print(f"Error in calcul_bornes_dynamiques: {e}")
         bornes = [-2, -1, 0, 1, 2]
-
     # 1. Calcul du score continu (indépendant de VDIRECT)
     # slope calculée avec r2 et er dans pmxRko
     try:
@@ -1415,42 +1414,37 @@ def enhanced_decision(proba_dict, weights, df,
     except Exception as e:
         print(f"Error in weighted_decision: {e}")
         final_score = 0
-
     # 2. Discrétisation (toujours [-2, -1, 0, 1, 2])
     zone = discretize_score(final_score)
-
     # 3. ✅ APPLICATION DE VDIRECT (inversion si suiveur)
     VDIRECT = utils.config_utils.VDIRECT
     if not VDIRECT:  # VDIRECT=False = suiveur → on inverse les zones
         zone = -zone  # [2, 1, 0, -1, -2]
-
     # 4. Filtrage temporel
     try:
         if not zone_filter.update(zone, bornes, time_current):
-            return 0
+            return 0, regime
     except Exception as e:
         print(f"Error in zone_filter.update: {e}")
-        return 0
-
+        return 0, regime
     # 5. ✅ Adaptation au régime (corrigée)
     if regime in ["TRENDING_UP", "TRENDING_DOWN"]:
         if VDIRECT:  # Contre-tendance : on veut des signaux CONTRE la tendance
             # Bloquer les signaux DANS le sens de la tendance
             if (regime == "TRENDING_UP" and zone > 0) or (regime == "TRENDING_DOWN" and zone < 0):
-                return 0
+                return 0, regime
         else:  # Suiveur : on veut des signaux DANS le sens de la tendance
             # Bloquer les signaux CONTRE la tendance
             if (regime == "TRENDING_UP" and zone < 0) or (regime == "TRENDING_DOWN" and zone > 0):
-                return 0
-
+                return 0, regime
     # 7. Logique VSIMPLE
     VSIMPLE = utils.config_utils.VSIMPLE
     if VSIMPLE and abs(zone) < 2:
-        return 0
+        return 0, regime
 
     # 8. Logique VTOTALE
     VTOTALE = utils.config_utils.VTOTALE
     if VTOTALE and regime == "VOLATILE" and abs(zone) == 2:
-        return -zone
+        return -zone, regime
 
-    return zone
+    return zone, regime

@@ -68,7 +68,6 @@ class PmxRkoStrategy(Strategy):
             self.minimum = self.cfg['jepa']['SEQ_LEN'] + 12
         else:
             self.minimum = config.get("lstm", {}).get("lstm_seq_len", 24) + 24
-        self.fopen = False
         self.time_display = None
         if TEST_PROBA:
             self.monitor_proba = IndicatorMonitor(12, 12)
@@ -561,7 +560,7 @@ class PmxRkoStrategy(Strategy):
             # Vérifier si on a assez de données pour les indicateurs
             # Appel à la décision hybride
             try:
-                situation = enhanced_decision(
+                situation, regime = enhanced_decision(
                     proba_dict=proba_dict,
                     weights=self._param.get("weights", {}),
                     df=self.display,
@@ -580,13 +579,9 @@ class PmxRkoStrategy(Strategy):
                     dest = [2, 1, 0, -1, -2]
                 situation = calcul_situation(self.monitor_indic, self.bricks.tail(4), bornes, dest, True)
             # Debug: Afficher le régime détecté
-            try:
-                regime = detect_market_regime(self.display, self.cfg.get('market_regime', None), slope, std)
-                if self.parent:
-                    print(
-                        f"{BLEU_CIEL}[HYBRID] Régime: {regime}, Situation: {situation}, Proba: {proba:.4f}{RESET}")
-            except:
-                print("Error PmxRko in detect_market_regime")
+            if self.parent:
+                print(
+                    f"{BLEU_CIEL}[HYBRID] Régime: {regime}, Situation: {situation}, Proba: {proba:.4f}{RESET}")
         else:
             bornes = calcul_bornes(self.regression, self._param)
             if utils.config_utils.VDIRECT:
