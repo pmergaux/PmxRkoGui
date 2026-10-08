@@ -308,7 +308,6 @@ def train_all_models(config_std, df, trial):
         if "renko_volatility_ratio" in df.columns and "renko_volatility_ratio" not in features_cols:
             features_cols.append("renko_volatility_ratio")
         cfg["features"] = features_cols
-
         target_col = target_cols[0] if isinstance(target_cols, list) else target_cols
 
         if target_col not in df_renko.columns:
