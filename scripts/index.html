@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Dashboard PnL</title>
+    <!-- Chargement de Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.4/socket.io.js"></script>
+    <style>
+        body { background-color: #121212; color: #ffffff; font-family: sans-serif; margin: 0; }
+        .container { display: flex; height: 95vh; padding: 20px; gap: 20px; }
+        .chart-box { flex: 2; position: relative; min-width: 0; /* Important : permet au canvas de rétrécir si besoin */
+                     height: 400px; /* Forcez une hauteur fixe pour le test */
+}        .info-box { flex: 1; background: #1e1e1e; border-radius: 8px; padding: 20px; border: 1px solid #333; }
+        h3 { border-bottom: 2px solid #333; padding-bottom: 10px; margin-top: 0; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="chart-box">
+        <canvas id="myChart"></canvas>
+    </div>
+    <div class="info-box" id="stats">
+        <!-- Les stats s'injectent ici dynamiquement -->
+    </div>
+</div>
+
+<script>
+    const ctx = document.getElementById('myChart').getContext('2d');
+    const myChart = new Chart(ctx, {
+        type: 'bar', // On passe en barres
+        data: {
+            datasets: [
+                { 
+                    label: 'PnL', 
+                    data: [], 
+                    backgroundColor: [], // Sera rempli dynamiquement
+                    borderWidth: 0 
+                },
+                { 
+                    label: 'Moyenne', 
+                    data: [], 
+                    type: 'line', // La moyenne reste une ligne
+                    borderColor: '#ff9100', 
+                    borderDash: [5, 5], 
+                    pointRadius: 0 
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false, // Important : permet de remplir le div
+            plugins: { legend: { display: false } },
+            scales: {
+                x: { 
+                    grid: { color: '#333' }, 
+                    ticks: { color: '#aaa', maxRotation: 0 } 
+                },
+                y: { 
+                    grid: { color: '#333' }, 
+                    ticks: { color: '#aaa' } 
+                }
+            }
+        }
+    });
+    const socket = io("http://localhost:5000");
+
+    socket.on('connect', () => {
+        console.log("Connecté au serveur TS !");
+    });
+    
+    socket.on('nouveau_calcul', (data) => {
+        if (!data || !data.result) return;
+        console.log("Données reçues brut :", data);
+
+        // 1. Calcul des couleurs pour chaque barre
+        const couleurs = data.historique.map(val => val >= 0 ? '#00e676' : '#ff5252');
+        
+        // 2. Mise à jour du dataset 0 (Barres)
+        myChart.data.datasets[0].data = data.historique;
+        myChart.data.datasets[0].backgroundColor = data.historique.map(v => v >= 0 ? '#00e676' : '#ff5252');        
+        // 3. Mise à jour dataset 1 (Moyenne)
+        // On crée une ligne qui traverse toutes les barres
+        const moyenne = data.result.mean;
+        myChart.data.datasets[1].data = Array(data.historique.length).fill(moyenne);
+        
+        console.log("Données envoyées au graphique :", myChart.data.datasets[0].data);
+        console.log("Canvas width:", document.getElementById('myChart').offsetWidth);        
+        // 1. Générer une liste d'index (0, 1, 2... 41) pour correspondre à vos données
+        const labels = data.historique.map((_, index) => index);
+        // 2. Assigner ces labels au graphique
+        myChart.data.labels = labels;        
+        myChart.update();
+		// 2. Configuration des stats mise à jour et synchronisée avec vos données
+        const displayConfig = {
+            'profit': { label: 'Profit Total', unit: ' $', decimals: 2 },
+            'renko_size': { label: 'Renko Size', unit: '', decimals: 1 },
+            'trades': { label: 'Total Trades', unit: '', decimals: 0 },
+            'win_rate': { label: 'Win Rate', unit: '%', decimals: 1 }, // Note: si votre win_rate est entre 0 et 1, multipliez par 100 dans l'affichage si besoin
+            'days': { label: 'Days', unit: '', decimals: 0 },
+            'P/L': { label: 'Ratio P/L', unit: '', decimals: 2 },
+            'profit_factor': { label: 'Profit Factor', unit: '', decimals: 2 },
+            'max_drawdown': { label: 'Max Drawdown', unit: ' $', decimals: 2 },
+            'mean_gain': { label: 'Moyenne Gains', unit: ' $', decimals: 2 },
+            'sum_gains': { label: 'Somme Gains', unit: ' $', decimals: 2 },
+            'mean_loss': { label: 'Moyenne Pertes', unit: ' $', decimals: 2 },
+            'sum_pertes': { label: 'Somme Pertes', unit: ' $', decimals: 2 },
+            'mean': { label: 'Moyenne PnL', unit: ' $', decimals: 2 },
+            'score': { label: 'Score Optuna', unit: '', decimals: 3 },
+            'hcode': { label: 'Hcode', unit: '', decimals: 0 },
+        };
+        // 3. Génération dynamique
+        let statsHtml = `<h3>Statistiques</h3>`;
+        for (const [key, config] of Object.entries(displayConfig)) {
+            const val = data.result[key];
+            if (val !== undefined) {
+                let color = '#ffffff';
+                if (key === 'profit' || key === 'mean_gain') color = '#00e676';
+                if (key === 'mean_loss' || key === 'max_drawdown') color = '#ff5252';
+
+                // Gestion propre si c'est un tableau (ex: version: ['CAT', 'TAB'])
+                let formattedVal = val;
+                if (Array.isArray(val)) {
+                    formattedVal = val.join(', ');
+                } else if (typeof val === 'number') {
+                    const rawVal = val;
+                    // Conversion du win_rate en pourcentage si besoin (ex: 0.61 -> 61.9)
+                    const adjustedVal = (key === 'win_rate' && rawVal <= 1) ? rawVal * 100 : rawVal;
+                    formattedVal = adjustedVal.toFixed(config.decimals);
+                }
+
+                statsHtml += `
+                    <div style="display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #333;">
+                        <span style="color: #aaa;">${config.label}</span>
+                        <span style="color: ${color}; font-weight: bold;">
+                            ${formattedVal}${config.unit}
+                        </span>
+                    </div>`;
+            }
+        }
+        document.getElementById('stats').innerHTML = statsHtml;
+    });
+</script>
+</body>
+</html>

@@ -1,0 +1,185 @@
+{
+    "pmxRKOtest": {
+      "parameters": {
+        "renko_size": 22.7,
+        "ema_period": 9,
+        "rsi_period": 9,
+        "rsi_high": 70,
+        "rsi_low": 30,
+        "macd": {
+          "macd_fast": 9,
+          "macd_slow": 18,
+          "macd_signal": 7
+        },
+        "tabicl_window": 64,
+        "min_stability_time": 300,
+        "weights": {
+          "TAB": 7,
+          "TABFF": 7,
+          "LGBM": 3,
+          "CAT": 3,
+          "JEPA": 7,
+          "TABFIN": 7,
+          "FINJEPA": 7
+        },
+        "close_sell": 0.46,
+        "threshold_sell": 0.67,
+        "close_buy": 0.57,
+        "threshold_buy": 0.36,
+        "window_monitor": 0,
+        "open_level_rnn": 1.3,
+        "close_level_rnn": 0.3,
+        "open_level_tabicl": 1.5,
+        "close_level_tabicl": 0.2
+      },
+      "probability": {
+        "interval": 300,
+        "alert_window" : 3,
+        "slope_window" : 3,
+        "slope_base": 0.004,
+        "z_proba_min" : 1.2,
+        "v_thresh": 5000
+      },
+      "market_regime": {
+          "regression_window": 20,
+          "adx_period": 14,
+          "volatility_window": 50,
+          "volatility_threshold": 1.5,
+          "adx_threshold": 25
+      },
+      "indicators_and_filters": {
+        "atr": {
+          "window": 14
+        },
+        "stoch": {
+          "window": 18,
+          "slow": 5,
+          "signal": 5
+        },
+        "sar": {
+          "window": 0.02,
+          "maxi": 0.2
+        },
+        "zscore": {
+          "window": 24
+        },
+        "er": {
+          "window": 6
+        },
+        "regression": {
+          "window": 6
+        },
+        "veto": {
+          "r2_min": 0.3,
+          "er_min": 0.35,
+          "pente_contrarienne_min": 0.15,
+          "er_pente_veto_trigger": 0.45,
+          "is_trending_hard": 0.85
+        }
+      },
+      "features": [
+        "time_live",
+        "close",
+        "diff_close",
+        "diff_ema",
+        "RSI",
+        "diff_macd"
+      ],
+      "target": {
+        "target_col": "diff_ema",
+        "target_type": "diff_scaled",
+        "target_include": false
+      },
+      "open_rules": {
+        "rule_ema": true,
+        "rule_rsi": true,
+        "rule_macd": true
+      },
+      "close_rules": {
+        "close_sens": true
+      },
+      "jepa": {
+        "SEQ_LEN": 64,
+        "BATCH_SIZE": 32,
+        "HIDDEN_DIM": 64,
+        "LATENT_DIM": 32,
+        "NUM_LAYERS": 2,
+        "LR": 1e-3,
+        "NUM_EPOCHS": 3,
+        "INPUT_DIM": 6,
+        "ACTIVATION_TYPE": "sigmoid"
+      },
+      "finjepa": {
+        "context_len": 60,
+        "target_len": 15,
+        "batch_size": 32,
+        "epochs": 5,
+        "lr": 1e-4
+      },
+      "lstm": {
+        "lstm_seq_len": 56,
+        "lstm_units": 192
+      },
+      "mlp": {
+        "mlp_unit1": 256,
+        "mlp_unit2": 0,
+        "mlp_dropout": 0.2,
+        "mlp_lr": 0.001,
+        "mlp_batch_size": 256,
+        "mlp_patience": 13
+      },
+      "xgb": {
+        "xgb_learning_rate": 0.03,
+        "xgb_max_depth": 4,
+        "xgb_n_estimators": 1000,
+        "xgb_subsample": 0.8,
+        "xgb_colsample_bytree": 0.8,
+        "xgb_early_stop_rounds": 50
+      },
+      "lgbm": {
+        "lgbm_learning_rate": 0.05,
+        "lgbm_num_leaves": 15,
+        "lgbm_n_estimators": 1000,
+        "lgbm_feature_fraction": 0.7,
+        "lgbm_bagging_fraction": 0.8,
+        "lgbm_min_child_samples": 20,
+        "lgbm_early_stop_rounds": 50
+      },
+      "gru": {
+        "gru_seq_len": 32,
+        "gru_units1": 32,
+        "gru_units2": 48,
+        "gru_lr": 0.00019178608599561086,
+        "gru_dropout": 0.30000000000000004,
+        "batch_size": 32,
+        "gru_patience": 10
+      },
+      "catboost": {
+        "iterations": 700,
+        "depth": 5,
+        "learning_rate": 0.31,
+        "l2_leaf_reg": 8
+      },
+      "live": {
+        "symbol": "ETHUSD",
+        "lot_size": 1.0,
+        "timeframe": "1h",
+        "volume": 1.0,
+        "magic": 125799,
+        "mt5_login": 267150,
+        "mt5_password": "axa77Garp&.",
+        "mt5_server": "FusionMarkets-Live",
+        "port": 18812,
+        "mt5_path": "/home/pierre/.wine/drive_c/Program Files/MetaTrader 5/terminal64.exe",
+        "name": "pmxRKO",
+        "version": [
+          "LGBM"
+        ],
+        "sl": 0,
+        "tp": 0,
+        "hcode": "f22ada8c3a02",
+        "option": "TFT"
+      }
+	}
+}
+
