@@ -518,8 +518,12 @@ class PmxRkoStrategy(Strategy):
         proba, z_indic, z_means, moy = monitoring(self.proba, self.monitor_indic, self.monitor_means)
         recent_bricks = self.bricks.tail(3)
         recent_bricks['direction'] = np.where(recent_bricks['close_renko'] > recent_bricks['open_renko'], 1,-1)
-        action = BUY if all(np.diff(recent_bricks['direction']) > 0) else SELL if all(np.diff(recent_bricks['direction']) < 0) else NONE
-
+        if all(recent_bricks['direction'] == 1):  # Toutes les briques sont haussières
+            action = BUY
+        elif all(recent_bricks['direction'] == -1):  # Toutes les briques sont baissières
+            action = SELL
+        else:
+            action = NONE
         # ============================================================================
         # NOUVELLE LOGIQUE HYBRIDE
         # ============================================================================

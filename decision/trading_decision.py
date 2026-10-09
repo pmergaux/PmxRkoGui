@@ -1432,22 +1432,31 @@ def enhanced_decision(proba_dict, weights, df, action,
     except Exception as e:
         print(f"Error in zone_filter.update: {e}")
         return 0, regime
-    # 5. ✅ Adaptation au régime (corrigée)
+    # 5. ✅ Contrôle et Adaptation au régime
+    # tendance forte confirmée, on doit aller dans son sens
     if regime in ["TRENDING_UP", "TRENDING_DOWN"]:
-        if VDIRECT:  # Contre-tendance : on veut des signaux CONTRE la tendance sauf si action est dans la tendance
-            # Bloquer les signaux DANS le sens de la tendance
-            if ((regime == "TRENDING_UP" and zone > 0 and action <= 0)
-                    or (regime == "TRENDING_DOWN" and zone < 0 and action >= 0)):
-                return 0, regime
-        else:  # Suiveur : on veut des signaux DANS le sens de la tendance
-            # Bloquer les signaux CONTRE la tendance
-            if (regime == "TRENDING_UP" and zone < 0) or (regime == "TRENDING_DOWN" and zone > 0):
-                return 0, regime
-    # 7. Logique VSIMPLE
+        if (regime == "TRENDING_UP" and action == 1) or (regime == "TRENDING_DOWN" and action == -1):
+            if zone != 0:
+                zone = action if abs(zone) == 1 else action * 2
+            return zone, regime
+        """
+        else:
+            # tendance faible à ne pas contrarier ?
+            if VDIRECT:  # Contre-tendance : on accepte des signaux CONTRE la tendance
+                # Bloquer les signaux DANS le sens de la tendance: NON si les probas suivent !!
+                if (regime == "TRENDING_UP" and zone > 0) or (regime == "TRENDING_DOWN" and zone < 0):
+                    return 0, regime
+            else:  # Suiveur : on veut des signaux DANS le sens de la tendance
+                # Bloquer les signaux CONTRE la tendance
+                if (regime == "TRENDING_UP" and zone < 0) or (regime == "TRENDING_DOWN" and zone > 0):
+                    return 0, regime
+        """
+    # 7. Logique VSIMPLE Non get_open_decision le fera
+    """
     VSIMPLE = utils.config_utils.VSIMPLE
     if VSIMPLE and abs(zone) < 2:
         return 0, regime
-
+    """
     # 8. Logique VTOTALE
     VTOTALE = utils.config_utils.VTOTALE
     if VTOTALE and regime == "VOLATILE" and abs(zone) == 2:
