@@ -1109,53 +1109,6 @@ class ZoneStabilityFilter:
                     return True  # Zone stable depuis assez longtemps
             return False
 
-class ZoneStabilityFilter_w_proba:
-    """
-    Filtre de stabilité temporelle pour éviter les faux signaux.
-    Ne valide une zone que si elle reste stable pendant un temps minimal.
-    """
-    def __init__(self, min_stability_time=300):  # 5 min par défaut
-        self.min_stability_time = min_stability_time
-        self.current_zone = None
-        self.zone_start_time = None
-        self.zone_history = deque(maxlen=10)  # Dernières 10 zones
-
-    def update(self, proba, bornes, current_time):
-        """
-        Met à jour le filtre avec la dernière probabilité et le temps actuel.
-        Args:
-            proba: float, probabilité actuelle
-            bornes: list, liste des 4 seuils [threshold_sell, close_buy, close_sell, threshold_buy]
-            current_time: datetime, heure actuelle
-        Returns:
-            int or None: la zone stable (0, ±1, ±2) ou None si instable
-        """
-        # Déterminer la zone actuelle
-        if proba < bornes[0]:
-            zone = -2  # SV
-        elif proba < bornes[1]:
-            zone = -1  # V
-        elif proba < bornes[2]:
-            zone = 0   # N
-        elif proba < bornes[3]:
-            zone = 1   # A
-        else:
-            zone = 2   # SA
-
-        # Si la zone change
-        if zone != self.current_zone:
-            self.current_zone = zone
-            self.zone_start_time = current_time
-            self.zone_history.append((zone, current_time))
-            return False  # Changement de zone → pas de décision
-        else:
-            # Vérifier si on est stable depuis assez longtemps
-            if self.zone_start_time is not None:
-                stability_duration = (current_time - self.zone_start_time).total_seconds()
-                if stability_duration >= self.min_stability_time:
-                    return True # Zone stable → décision valide
-            return False  # Zone instable → pas de décision
-
 def calcul_bornes_dynamiques(param, df, r2, er):
     """
     Calcule des bornes dynamiques en fonction de la volatilité et de la confiance des modèles.
@@ -1219,19 +1172,13 @@ def calcul_bornes_dynamiques(param, df, r2, er):
 
     return dynamic_bornes
 
+
 def detect_market_regime(df, regime_params=None, slope=0.0, volatility=1.0):
     """
-    Détecte le régime du marché avec des paramètres configurables.
-    Args:
-        df: DataFrame avec colonnes 'close', 'high', 'low'
-        regime_params: dict avec clés :
-            - regression_window (int, défaut=20)
-            - adx_period (int, défaut=14)
-            - volatility_window (int, défaut=50)
-            - volatility_threshold (float, défaut=1.5)
-            - adx_threshold (int, défaut=25)
-    Returns:
-        str: "TRENDING_UP", "TRENDING_DOWN", "RANGING", "VOLATILE"
+    Détecte le régime du marché avec granularité :
+    - Tendance (UP/DOWN) + vitesse (FAST/SLOW)
+    - Volatilité (UP/DOWN/NEUTRE)
+    - Range (TIGHT/WIDE)
     """
     # Paramètres par défaut
     params = {
@@ -1239,13 +1186,18 @@ def detect_market_regime(df, regime_params=None, slope=0.0, volatility=1.0):
         "adx_period": 14,
         "volatility_window": 50,
         "volatility_threshold": 1.5,
-        "adx_threshold": 25
+        "adx_threshold_strong": 25,  # Tendance forte
+        "adx_threshold_weak": 20,  # Tendance faible
+        "slope_threshold": 0.05,  # Seuil pente pour FAST/SLOW
     }
     if regime_params is not None:
         params.update(regime_params)
+
     reg_win = params["regression_window"]
-    if len(df) < reg_win  or 'close' not in df.columns:
-        return "RANGING"
+    if len(df) < reg_win or 'close' not in df.columns:
+        return "RANGING_TIGHT"
+
+    # 1. Régression linéaire (déjà calculée en amont)
     """
     # 1. Régression linéaire
     close_prices = df['close'].iloc[-reg_win:].values
@@ -1254,6 +1206,8 @@ def detect_market_regime(df, regime_params=None, slope=0.0, volatility=1.0):
     # 2. Volatilité
     volatility = np.std(close_prices)
     """
+
+    # 2. Volatilité ratio
     if len(df) > params["volatility_window"]:
         volatility_mean = df['close'].rolling(params["volatility_window"]).std().iloc[-1]
         volatility_ratio = volatility / volatility_mean if volatility_mean != 0 else 1.0
@@ -1286,16 +1240,50 @@ def detect_market_regime(df, regime_params=None, slope=0.0, volatility=1.0):
     else:
         adx = 0
 
-    # 4. Détection du régime
-    if adx > params["adx_threshold"]:
-        if slope > 0:
-            return "TRENDING_UP"
+    # --- NOUVELLE LOGIQUE GRANULAIRE ---
+    is_volatile = volatility_ratio > params["volatility_threshold"]
+    is_trending = params["adx_threshold_weak"] < adx <= params["adx_threshold_strong"]
+    is_strong_trending = adx > params["adx_threshold_strong"]
+    is_ranging = adx <= params["adx_threshold_weak"]
+
+    # --- CAS 1 : VOLATILITÉ ---
+    if is_volatile:
+        if slope > params["slope_threshold"]:
+            return "VOLATILE_UP"
+        elif slope < -params["slope_threshold"]:
+            return "VOLATILE_DOWN"
         else:
-            return "TRENDING_DOWN"
-    elif volatility_ratio > params["volatility_threshold"]:
-        return "VOLATILE"
-    else:
-        return "RANGING"
+            # Cas rare : on le traite comme VOLATILE_UP ou DOWN en fonction du dernier mouvement
+            last_close = df['close'].iloc[-1]
+            prev_close = df['close'].iloc[-2]
+            if last_close > prev_close:
+                return "VOLATILE"
+            else:
+                return "VOLATILE"
+
+    # --- CAS 2 : TENDANCE ---
+    elif is_strong_trending:
+        if slope > params["slope_threshold"]:
+            return "TRENDING_UP_FAST"
+        elif slope < -params["slope_threshold"]:
+            return "TRENDING_DOWN_FAST"
+        elif slope > 0:
+            return "TRENDING_UP_SLOW"
+        else:
+            return "TRENDING_DOWN_SLOW"
+
+    elif is_trending:
+        if slope > 0:
+            return "TRENDING_UP_SLOW"
+        else:
+            return "TRENDING_DOWN_SLOW"
+
+    # --- CAS 3 : RANGE ---
+    else:       # is_ranging
+        if volatility_ratio < 1.0:
+            return "RANGING_TIGHT"
+        else:
+            return "RANGING_WIDE"
 
 def weighted_decision(proba_dict, weights, df, bornes, slope):
     """
@@ -1407,6 +1395,10 @@ def enhanced_decision(proba_dict, weights, df, action,
     except Exception as e:
         print(f"Error in detect_market_regime: {e}")
         regime = ""
+    # === BLOCAGE VOLATILE NEUTRE ===
+    if "VOLATILE" == regime:
+        print(f"[SECURITY] {ROUGE}Régime {regime}: BLOCAGE TOTAL (volatilité neutre){RESET}")
+        return 0, regime
     try:
         bornes = calcul_bornes_dynamiques(param, df, r2, er)  # proba supprimé
     except Exception as e:
@@ -1434,31 +1426,39 @@ def enhanced_decision(proba_dict, weights, df, action,
         return 0, regime
     # 5. ✅ Contrôle et Adaptation au régime
     # tendance forte confirmée, on doit aller dans son sens
-    if regime in ["TRENDING_UP", "TRENDING_DOWN"]:
-        if (regime == "TRENDING_UP" and action == 1) or (regime == "TRENDING_DOWN" and action == -1):
-            if zone != 0:
-                zone = action if abs(zone) == 1 else action * 2
-            return zone, regime
-        """
-        else:
-            # tendance faible à ne pas contrarier ?
-            if VDIRECT:  # Contre-tendance : on accepte des signaux CONTRE la tendance
-                # Bloquer les signaux DANS le sens de la tendance: NON si les probas suivent !!
-                if (regime == "TRENDING_UP" and zone > 0) or (regime == "TRENDING_DOWN" and zone < 0):
-                    return 0, regime
-            else:  # Suiveur : on veut des signaux DANS le sens de la tendance
-                # Bloquer les signaux CONTRE la tendance
-                if (regime == "TRENDING_UP" and zone < 0) or (regime == "TRENDING_DOWN" and zone > 0):
-                    return 0, regime
-        """
+    reg_num = NONE
+    if "_UP" in regime:
+        reg_num = 1
+        if "VOLATILE" in regime:
+            reg_num = 2
+    elif "_DOWN" in regime:
+        reg_num = -1
+        if "VOLATILE" in regime:
+            reg_num = -2
+    if reg_num * action > 0:
+        if zone != 0:
+            zone = action if abs(zone) == 1 else action * 2
+        return zone, regime
+    """
+    else:
+        # tendance faible à ne pas contrarier ?
+        if VDIRECT:  # Contre-tendance : on accepte des signaux CONTRE la tendance
+            # Bloquer les signaux DANS le sens de la tendance: NON si les probas suivent !!
+            if (regime == "TRENDING_UP" and zone > 0) or (regime == "TRENDING_DOWN" and zone < 0):
+                return 0, regime
+        else:  # Suiveur : on veut des signaux DANS le sens de la tendance
+            # Bloquer les signaux CONTRE la tendance
+            if (regime == "TRENDING_UP" and zone < 0) or (regime == "TRENDING_DOWN" and zone > 0):
+                return 0, regime
+    """
     # 7. Logique VSIMPLE Non get_open_decision le fera
     """
     VSIMPLE = utils.config_utils.VSIMPLE
     if VSIMPLE and abs(zone) < 2:
         return 0, regime
     """
-    # 8. Logique VTOTALE
+    # 8. Logique VTOTALE et cas ou action = 0
     VTOTALE = utils.config_utils.VTOTALE
-    if VTOTALE and regime == "VOLATILE" and abs(zone) == 2:
+    if VTOTALE and  "VOLATILE" in regime and abs(zone) == 2:
         return -zone, regime
     return zone, regime

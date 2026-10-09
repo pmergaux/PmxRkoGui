@@ -273,6 +273,16 @@ def objective(trial):
 
     config["target"]["target_col"] = [target_col]
 
+    config["market_regime"] = {
+        "regression_window": trial.suggest_int("regression_window", 10, 30),
+        "adx_period": trial.suggest_int("adx_period", 10, 20),
+        "volatility_window": trial.suggest_int("volatility_window", 30, 70),
+        "volatility_threshold": trial.suggest_float("volatility_threshold", 1.2, 2.0, step=0.1),
+        "adx_threshold_strong": 25,  # Tendance forte
+        "adx_threshold_weak": 20,  # Tendance faible
+        "slope_threshold": 0.05,  # Seuil pente pour FAST/SLOW
+    }
+
     # 3. On redécoupe la chaîne pour retrouver votre liste de modèles
     # config['live']["sl"] = trial.suggest_categorical('sl', optionSL)
     # config['live']["tp"] = trial.suggest_categorical('tp', optionTP)

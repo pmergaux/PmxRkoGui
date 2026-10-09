@@ -41,11 +41,13 @@
         "v_thresh": 5000
       },
       "market_regime": {
-          "regression_window": 20,
-          "adx_period": 14,
-          "volatility_window": 50,
-          "volatility_threshold": 1.5,
-          "adx_threshold": 25
+        "regression_window": 20,
+        "adx_period": 14,
+        "volatility_window": 50,
+        "volatility_threshold": 1.5,
+        "adx_threshold_strong": 25,
+        "adx_threshold_weak": 20,
+        "slope_threshold": 0.05
       },
       "indicators_and_filters": {
         "atr": {
