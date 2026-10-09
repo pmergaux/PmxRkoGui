@@ -1398,7 +1398,7 @@ def discretize_score(score):
     else:
         return 0  # N (Neutral)
 
-def enhanced_decision(proba_dict, weights, df,
+def enhanced_decision(proba_dict, weights, df, action,
                       param, r2, er, slope,volatility,
                       zone_filter, time_current):
     # 1. Détection du régime
@@ -1434,9 +1434,10 @@ def enhanced_decision(proba_dict, weights, df,
         return 0, regime
     # 5. ✅ Adaptation au régime (corrigée)
     if regime in ["TRENDING_UP", "TRENDING_DOWN"]:
-        if VDIRECT:  # Contre-tendance : on veut des signaux CONTRE la tendance
+        if VDIRECT:  # Contre-tendance : on veut des signaux CONTRE la tendance sauf si action est dans la tendance
             # Bloquer les signaux DANS le sens de la tendance
-            if (regime == "TRENDING_UP" and zone > 0) or (regime == "TRENDING_DOWN" and zone < 0):
+            if ((regime == "TRENDING_UP" and zone > 0 and action <= 0)
+                    or (regime == "TRENDING_DOWN" and zone < 0 and action >= 0)):
                 return 0, regime
         else:  # Suiveur : on veut des signaux DANS le sens de la tendance
             # Bloquer les signaux CONTRE la tendance

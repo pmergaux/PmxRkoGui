@@ -371,19 +371,16 @@ class PmxRkoStrategy(Strategy):
         ls = BUY if position.type == MetaTrader5.POSITION_TYPE_BUY else SELL
         return ls
 
-    def is_blocked(self):
+    def is_blocked(self, recent_bricks, action):
         # --------------------------------------------------- calcul situation etc ...
         blocked = NONE
-        recent_bricks = self.bricks.tail(3)
         # Conversion rapide uniquement sur ces quelques lignes
         times_ms = recent_bricks['time'].to_numpy().astype('int64') / 1_000_000
-        recent_bricks['direction'] = np.where(recent_bricks['close_renko'] > recent_bricks['open_renko'], 1,-1)
         # np.where(recent_bricks['open_renko'] > recent_bricks['close_renko'], -1, 0))
         durations = np.diff(times_ms)
         # La durée de la toute dernière brique clôturée est le dernier élément du tableau
         last_duration = durations[-1]
         prev_duration = durations[-2]
-        action = BUY if all(np.diff(recent_bricks['direction']) > 0) else SELL if all(np.diff(recent_bricks['direction']) < 0) else NONE
         # Votre seuil (ex: 60 secondes ou un pourcentage calculé globalement une seule fois au début)
         SEUIL_EMBALLEMENT = self.v_thresh
         if last_duration < 5000 and last_duration > 1500 and prev_duration > 5000 and action != NONE:
@@ -519,6 +516,9 @@ class PmxRkoStrategy(Strategy):
             opTrade = True
         # ------------------------- prises et application des décisions ---------------------
         proba, z_indic, z_means, moy = monitoring(self.proba, self.monitor_indic, self.monitor_means)
+        recent_bricks = self.bricks.tail(3)
+        recent_bricks['direction'] = np.where(recent_bricks['close_renko'] > recent_bricks['open_renko'], 1,-1)
+        action = BUY if all(np.diff(recent_bricks['direction']) > 0) else SELL if all(np.diff(recent_bricks['direction']) < 0) else NONE
 
         # ============================================================================
         # NOUVELLE LOGIQUE HYBRIDE
@@ -543,7 +543,7 @@ class PmxRkoStrategy(Strategy):
                 situation, regime = enhanced_decision(
                     proba_dict=proba_dict,
                     weights=self._param.get("weights", {}),
-                    df=self.display,
+                    df=self.display, action=action,
                     param=self.cfg,
                     r2=r2, er=er_val,slope=slope,volatility=std,
                     zone_filter=self.zone_filter,
@@ -570,7 +570,7 @@ class PmxRkoStrategy(Strategy):
             else:
                 dest = [2, 1, 0, -1, -2]
             situation = calcul_situation(self.monitor_indic, self.bricks.tail(4), bornes, dest, True)
-        blocked = self.is_blocked()
+        blocked = self.is_blocked(recent_bricks, action)
         if blocked != NONE and abs(situation) == 2:
             situation = blocked * 2
         #sens, is_strong_market_push, trend_down_valid, trend_up_valid = self.market_analysis(proba, z_indic, moy, z_means, True)
