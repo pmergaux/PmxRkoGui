@@ -33,7 +33,6 @@ ROOT_DIR = os.path.dirname(CURRENT_DIR)
 DATA_DIR = os.path.join(ROOT_DIR, "data")
 BUFFER_FILE = os.path.join(DATA_DIR, "accuracy_buffer.json")
 version_rnn = True
-version_enhanced = True
 TEST_PROBA = False
 
 class PmxRkoStrategy(Strategy):
@@ -527,12 +526,12 @@ class PmxRkoStrategy(Strategy):
         # ============================================================================
         # NOUVELLE LOGIQUE HYBRIDE
         # ============================================================================
-        if version_enhanced:
+        if utils.config_utils.VENHANCE:
             # 1. Préparation des données pour la décision améliorée
             reg_window = self.cfg.get('market_regime', {}).get("regression_window", 14)
             # Segment des 14 dernières briques Renko
-            y_seg = self.display['close'].iloc[-reg_window:].values
-            slope, std, vol_log_pct, r2, er_val = fast_stats_single(y_seg)
+            y_seg = self.bricks['close'].iloc[-reg_window:].values
+            slope, std, _, r2, er_val = fast_stats_single(y_seg)
             # 2. Collecte des probabilités de tous les modèles
             proba_dict = {}
             # Si on a plusieurs modèles, récupérer leurs prédictions
@@ -575,8 +574,6 @@ class PmxRkoStrategy(Strategy):
                 dest = [2, 1, 0, -1, -2]
             situation = calcul_situation(self.monitor_indic, self.bricks.tail(4), bornes, dest, True)
         blocked = self.is_blocked(recent_bricks, action)
-        if blocked != NONE and abs(situation) == 2:
-            situation = blocked * 2
         #sens, is_strong_market_push, trend_down_valid, trend_up_valid = self.market_analysis(proba, z_indic, moy, z_means, True)
 
         sigOpen = get_open_decision(situation)
@@ -620,7 +617,6 @@ class PmxRkoStrategy(Strategy):
                     print(f"err Trading decision {e}")
                     return
                 # print('signaux', sigClose, sigOpen, self.ppente)
-                msg = 'norm' if sigClose == CLOSE else 'sltp' if sigClose == FCLOSE else 'sens'
                 askClose = False
                 """
                 if sigClose != FCLOSE:
@@ -639,10 +635,15 @@ class PmxRkoStrategy(Strategy):
                     askClose = True
                 """
                 # comme avant
+                if ls * blocked < 0:
+                    sigClose = 4
+                    if sigOpen * blocked < 0:
+                        sigOpen = blocked
                 if sigClose == FCLOSE and sigOpen * ls > 0:
                     sigClose = NONE			# cloture inutile serait ré ouverte immédiatement
                 askClose = (sigClose > 3)
                 if askClose:
+                    msg = 'norm' if sigClose == CLOSE else 'sltp' if sigClose == FCLOSE else 'sens'
                     # print("ask close")
                     self.close_locale(sigClose, msg)
                     self.situation = 0

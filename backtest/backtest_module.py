@@ -19,7 +19,7 @@ from train.pipeline_manager import train_all_models, prepare_renko
 from decision.trading_decision import decision_ai, decision_monitor, IndicatorMonitor, proba_final
 import utils.config_utils
 from utils.config_utils import config_to_hash, prepare_to_hashcode
-from utils.model_utils import save_model_artifact, save_jepa, cntrl_jepa, kr_servers
+from utils.model_utils import save_model_artifact, save_jepa, cntrl_jepa, kr_servers, save_finjepa, cntrl_finjepa
 from utils.utils import ROUGE, RESET, BLEU
 import requests
 
@@ -48,13 +48,14 @@ def save_to_top10(config_std, score, result_copy, models, scaler, trial=None):
     """Sauvegarde intelligente Top 10 avec RNN + TabICL"""
     try:
         nd = result_copy.get('days', 6)
-        if result_copy.get('trades', 0) < int(nd/2.2) or result_copy.get('profit', 0) < 20:
+        if result_copy.get('trades', 0) < int(nd / 2.2) or result_copy.get('profit', 0) < 20:
             print(f"{ROUGE}+++++++++++++++++++++ result rejeté {score}{RESET}")
             return
     except Exception as e:
         print(f"err result {type(result_copy)}: {e}")
         return
-    # print(f"result {type(result_copy)}: {result_copy}")
+
+    # Gestion du verrou (lock) pour éviter les accès concurrents
     lock_dir = os.path.join(ROOT_DIR, "save_model.lock")
     while True:
         try:
@@ -62,6 +63,7 @@ def save_to_top10(config_std, score, result_copy, models, scaler, trial=None):
             break
         except FileExistsError:
             time.sleep(0.05)
+
     try:
         pnl = result_copy['positions']
         del result_copy['positions']
@@ -69,7 +71,7 @@ def save_to_top10(config_std, score, result_copy, models, scaler, trial=None):
         top_dir = "/media/pierre/datad/data/top10"
         os.makedirs(top_dir, exist_ok=True)
 
-        # Liste des dossiers existants
+        # Liste des dossiers existants et récupération des scores
         existing = [d for d in os.listdir(top_dir) if os.path.isdir(os.path.join(top_dir, d))]
         scores = []
         for d in existing:
@@ -82,26 +84,40 @@ def save_to_top10(config_std, score, result_copy, models, scaler, trial=None):
             except:
                 continue
 
-        for i in range(len(scores)):
-            local_score = scores[i][0]
-            if local_score == score:
-                return
-        # Si on a déjà 10 modèles → on supprime le pire si le nouveau est meilleur
-        if len(scores) > 0:
-            scores.sort(reverse=True)  # du meilleur au pire
-        if len(scores) >= 5:
-            # recherche si déjà existant
-            worst_score = scores[-1][0]
-            if score <= worst_score:
-                return  # pas assez bon
-            # Suppression du pire
-            worst_dir = os.path.join(top_dir, scores[-1][1])
-            if os.path.exists(worst_dir):
-                import shutil
-                shutil.rmtree(worst_dir, ignore_errors=True)
+            # Tri du meilleur au pire (du plus grand score au plus petit)
+            scores.sort(key=lambda x: x[0], reverse=True)
 
-        # ================== affichage du best ==============
+            # Vérification si le score exact existe déjà
+            for s, d in scores:
+                if s == score:
+                    return
+
+            # 2. Filtrage strict pour un Top 5 maximum
+            if len(scores) >= 5:
+                # Le 5ème meilleur score se trouve à l'index 4
+                fifth_best_score = scores[4][0]
+                if score <= fifth_best_score:
+                    # Le score est inférieur ou égal au 5ème : rejeté !
+                    return
+        # ==========================================================
+        # VALIDÉ : Le modèle est bon, on effectue les contrôles finaux
+        # ==========================================================
+        if 'JEPA' in config_std["live"]["version"]:
+            jepa_model, stats = models['JEPA']
+            cntrl_jepa(jepa_model.state_dict(), config_std.get("jepa", {}))
+
+        if 'FINJEPA' in config_std["live"]["version"]:
+            finjepa_model, stats = models['FINJEPA']
+            actual_finjepa = finjepa_model.model if hasattr(finjepa_model, 'model') else finjepa_model
+            # Correction ici : on appelle bien cntrl_finjepa avec le state_dict
+            cntrl_finjepa(actual_finjepa.state_dict(), config_std.get("finjepa", {}))
+
+        # Création du dossier UNIQUEMENT MAINTENANT (évite les dossiers vides)
         hcode = config_std.get('live', {}).get('hcode', "unknowb")
+        model_dir = os.path.join(top_dir, f"rank_temp_{hcode}")
+        os.makedirs(model_dir, exist_ok=True)
+
+        # ================== Affichage du best ==============
         if len(scores) == 0 or score >= scores[0][0]:
             try:
                 result_copy['hcode'] = hcode
@@ -110,16 +126,7 @@ def save_to_top10(config_std, score, result_copy, models, scaler, trial=None):
             except Exception as e:
                 print(f"err dispatch score {e} ")
 
-        # Création du dossier pour ce modèle
-        model_dir = os.path.join(top_dir, f"rank_temp_{hcode}")
-        os.makedirs(model_dir, exist_ok=True)
-
-        # =========Sauvegarde de la Config ==================
-        # ================== verifier jepa =================
-        if 'JEPA' in config_std["live"]["version"]:
-            model = models['JEPA']
-            model, stats = model
-            cntrl_jepa(model.state_dict(), config_std.get("jepa", {}))
+        # ========= Sauvegarde de la Config ==================
         strategy_name = config_std.get('live', {}).get('name', 'unknown_strategy')
         target_col = config_std.get('target', {}).get('target_col', None)
         if target_col is not None and isinstance(target_col, list):
@@ -131,8 +138,7 @@ def save_to_top10(config_std, score, result_copy, models, scaler, trial=None):
             json.dump(nested_config, f, indent=4)
         print(f"  -> Config standard sauvegardée sous {config_path}")
 
-        # ==================== SAUVEGARDE RNN / TABICL ====================
-        # ==================== SAUVEGARDE RNN / TABICL / JEPA / FINJEPA ====================
+        # ==================== SAUVEGARDE DES MODÈLES ====================
         for key, model in models.items():
             if model is not None:
                 key_upper = key.upper()
@@ -153,17 +159,11 @@ def save_to_top10(config_std, score, result_copy, models, scaler, trial=None):
                     jepa_model, stats = model
                     save_jepa(jepa_model, stats, model_path, config_std.get("jepa", {}))
                 elif 'FINJEPA' == key_upper:
-                    import torch
-                    # 🚀 NOUVEAU : Sauvegarde propre du prédicteur Fin-JEPA via PyTorch
                     finjepa_path = os.path.join(model_dir, f"{key}_{hcode}.pth")
-                    # Si model est l'instance de FinJepaPredictor ou directement son state_dict / objet
-                    if hasattr(model, 'model'):
-                        torch.save(model.model.state_dict(), finjepa_path)
-                    else:
-                        torch.save(model, finjepa_path)
+                    finjepa_model, stats = model
+                    save_finjepa(finjepa_model, stats, finjepa_path, config_std.get("finjepa", {}))
                     print(f"  -> FinJepa sauvegardé sous {finjepa_path}")
                 elif 'TABFIN' == key_upper:
-                    # 🚀 NOUVEAU : TabICL entraîné sur les features augmentées Fin-JEPA
                     try:
                         joblib.dump(model, os.path.join(model_dir, f"{key}_{hcode}.joblib"))
                         print(f"  -> TabFin (TabICL) sauvegardé sous {key}_{hcode}.joblib")
@@ -177,12 +177,13 @@ def save_to_top10(config_std, score, result_copy, models, scaler, trial=None):
                             joblib.dump(model, os.path.join(model_dir, f"{key}_{hcode}.joblib"))
                     except Exception as e:
                         print(f" attribut save err {e}")
+
         # ==================== SAUVEGARDE SCALER ====================
         if scaler is not None:
             with open(os.path.join(model_dir, f"scaler_{hcode}.pkl"), 'wb') as f:
                 pickle.dump(scaler, f)
+
         # ==================== MÉTADONNÉES ====================
-        # Multi-strategy wrap
         meta = {
             "score": float(score),
             "result": result_copy
@@ -191,6 +192,29 @@ def save_to_top10(config_std, score, result_copy, models, scaler, trial=None):
             json.dump(meta, f, indent=2)
 
         print(f"🏆 {BLEU}Top 10 mis à jour !{RESET} Score: {score:.4f} → {hcode}\n{result_copy}")
+        # élimination des excédents
+        # ==================== NETTOYAGE STRICT TOP 5 ====================
+        # On reliste tout le dossier pour purger s'il y a plus de 5 dossiers
+        all_durs = [d for d in os.listdir(top_dir) if os.path.isdir(os.path.join(top_dir, d))]
+        all_scores = []
+        for d in all_durs:
+            meta_path = os.path.join(top_dir, d, "meta.json")
+            if os.path.exists(meta_path):
+                with open(meta_path) as f:
+                    meta = json.load(f)
+                    all_scores.append((meta.get('score', -9999), os.path.join(top_dir, d)))
+
+        # On trie du meilleur au pire
+        all_scores.sort(key=lambda x: x[0], reverse=True)
+
+        # Si on dépasse 5 dossiers, on supprime définitivement les plus mauvais
+        if len(all_scores) > 5:
+            import shutil
+            for bad_score, bad_path in all_scores[5:]:
+                print(f"  -> Suppression du modèle excédentaire (score: {bad_score}) : {bad_path}")
+                shutil.rmtree(bad_path, ignore_errors=True)
+
+        print(f"🏆 {BLEU}Top 5 mis à jour !{RESET} Score: {score:.4f} → {hcode}\n{result_copy}")
     except BaseException as e:
         print(f"{ROUGE} err save score{RESET} {e}")
         raise e
@@ -237,7 +261,7 @@ def run_backtest(config_std, trial=None):
         pmxTest.models = models
         pmxTest.all_bricks = df_renko_test.iloc[-400:]
         print(f"size {len(df_renko_test)} days {nb_jours} version {config_std['live']['version']} "
-              f"VS {utils.config_utils.VSIMPLE}, VT {utils.config_utils.VTOTALE}, VD {utils.config_utils.VDIRECT} ")
+              f"VS {utils.config_utils.VSIMPLE}, VT {utils.config_utils.VTOTALE}, VD {utils.config_utils.VDIRECT} VE {utils.config_utils.VENHANCE}")
 
         mini = 128
         for key, model in models.items():

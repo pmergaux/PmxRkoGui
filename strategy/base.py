@@ -13,7 +13,7 @@ from tabicl import TabICLRegressor
 from decision.trading_decision import IndicatorMonitor
 from live.connexion import Connexion, select_positions_magic
 from live.periodic_timer import Periodic_Timer_Thread
-from utils.model_utils import load_model, load_model_artifact, load_jepa
+from utils.model_utils import load_model, load_model_artifact, load_jepa, load_finjepa
 from utils.rate_utils import ticks2rates, ticks22rates, Tf2Rs
 from utils.utils import timeFrame2num, NONE, BUY, SELL, CLOSE, FCLOSE, connectMt5, get_clean_timestamp
 import tensorflow as tf
@@ -112,6 +112,9 @@ class Strategy(QThread):
             elif vs == 'JEPA':
                 model_path = model_path + ".pth"
                 model = load_jepa(model_path, self.cfg.get("jepa", {}))
+            elif vs == 'FINJEPA':
+                model_path = model_path + ".pth"
+                model = load_finjepa(model_path, self.cfg.get("finjepa", {}))
             else:
                 model_path = model_path+".joblib"
                 model = load_model(model_path, vs)

@@ -601,7 +601,9 @@ def decision_ai(dfo, bricks4jepa, cfg, scaler, models, features_cols=None, test=
                         proba = pred_brute.item()
                 elif key_lower == 'tabfin':
                     # start = time.time()
-                    finjepa_predictor = models.get('FINJEPA', None)
+                    # On récupère spécifiquement le prédicteur Fin-JEPA et le modèle TabFin courant (appelé ici 'model')
+                    finjepa_predictor, stats = models.get('FINJEPA', (None, None))
+
                     if test:
                         # 🚀 PARTIE GLOBALE : Exécutée UNE SEULE FOIS au tout début du test
                         if not hasattr(model, '_test_predictions_cached') or model._test_predictions_cached is None:
@@ -609,12 +611,24 @@ def decision_ai(dfo, bricks4jepa, cfg, scaler, models, features_cols=None, test=
 
                             # Extraction globale des embeddings Fin-JEPA
                             if finjepa_predictor is not None:
-                                finjepa_predictor.model.eval()
-                                with torch.no_grad():
-                                    full_tensor = torch.tensor(X_test_base, dtype=torch.float32).to(
-                                        finjepa_predictor.device)
-                                    latent_embeddings = finjepa_predictor.model.context_encoder(
-                                        full_tensor).cpu().numpy()
+                                # Gestion propre si finjepa_predictor est un tuple (modèle, stats) ou l'objet direct
+                                actual_finjepa = finjepa_predictor[0] if isinstance(finjepa_predictor,
+                                                                                    tuple) else finjepa_predictor
+                                encoder_device = actual_finjepa.device if hasattr(actual_finjepa,
+                                                                                  'device') else torch.device("cpu")
+
+                                if hasattr(actual_finjepa, 'model'):
+                                    actual_finjepa.model.eval()
+                                    with torch.no_grad():
+                                        full_tensor = torch.tensor(X_test_base, dtype=torch.float32).to(encoder_device)
+                                        latent_embeddings = actual_finjepa.model.context_encoder(
+                                            full_tensor).cpu().numpy()
+                                else:
+                                    actual_finjepa.eval()
+                                    with torch.no_grad():
+                                        full_tensor = torch.tensor(X_test_base, dtype=torch.float32).to(encoder_device)
+                                        latent_embeddings = actual_finjepa.context_encoder(full_tensor).cpu().numpy()
+
                                 X_test_augmented = np.hstack([X_test_base, latent_embeddings])
                             else:
                                 X_test_augmented = X_test_base
@@ -627,7 +641,7 @@ def decision_ai(dfo, bricks4jepa, cfg, scaler, models, features_cols=None, test=
 
                                 model.fit(X_train_init, y_train_init)
 
-                                # 2. On pré-calcule toutes les prédictions d'un bloc
+                                # 2. On pré-calcule toutes les prédictions du bloc
                                 model._test_predictions_cached = model.predict(X_test_augmented)
                             except Exception as e:
                                 print(f"err prediction model TABFIN : {e}")
@@ -635,34 +649,57 @@ def decision_ai(dfo, bricks4jepa, cfg, scaler, models, features_cols=None, test=
 
                             model._test_counter = 0
 
-                        # ⚡ PARTIE INCRÉMENTALE : Exécutée à chaque brique (Lecture instantanée à 0.00s)
+                        # ⚡ PARTIE INCRÉMENTALE : Exécutée à chaque brique
                         if hasattr(model, '_test_predictions_cached') and model._test_predictions_cached is not None:
                             idx = min(model._test_counter, len(model._test_predictions_cached) - 1)
                             proba = model._test_predictions_cached[idx]
                             model._test_counter += 1
                         else:
-                            # Fallback de secours si le cache a échoué
+                            # Fallback de secours corrigé avec les embeddings Fin-JEPA
                             df_query = dfi.iloc[[-1]]
-                            X_query = load_and_transform(scaler, df_query[features_cols])
+                            X_query_base = load_and_transform(scaler, df_query[features_cols])
+
+                            if finjepa_predictor is not None:
+                                actual_finjepa = finjepa_predictor[0] if isinstance(finjepa_predictor,
+                                                                                    tuple) else finjepa_predictor
+                                encoder_device = actual_finjepa.device if hasattr(actual_finjepa,
+                                                                                  'device') else torch.device("cpu")
+                                net = actual_finjepa.model if hasattr(actual_finjepa, 'model') else actual_finjepa
+
+                                net.eval()
+                                with torch.no_grad():
+                                    query_tensor = torch.tensor(X_query_base, dtype=torch.float32).to(encoder_device)
+                                    latent_query = net.context_encoder(query_tensor).cpu().numpy()
+                                X_query = np.hstack([X_query_base, latent_query])
+                            else:
+                                X_query = X_query_base
+
                             proba = model.predict(X_query)
                     else:
-                        # 1. On prend uniquement la fenêtre locale de contexte (ex: 64 briques) + la requête courante
+                        # Mode hors-test (en ligne / live)
                         window_size = tabicl_window + 1
                         df_window = dfi.tail(window_size) if len(dfi) >= window_size else dfi
                         df_context = df_window.iloc[:-1]
                         df_query = df_window.iloc[[-1]]
+
                         X_train_base = load_and_transform(scaler, df_context[features_cols])
                         y_train = df_context[target_cols].values.ravel()
                         X_query_base = load_and_transform(scaler, df_query[features_cols])
-                        # 2. Extraction des embeddings Fin-JEPA uniquement sur cette mini-fenêtre (Instantané < 5ms)
+
                         if finjepa_predictor is not None:
-                            finjepa_predictor.model.eval()
+                            actual_finjepa = finjepa_predictor[0] if isinstance(finjepa_predictor,
+                                                                                tuple) else finjepa_predictor
+                            encoder_device = actual_finjepa.device if hasattr(actual_finjepa,
+                                                                              'device') else torch.device("cpu")
+                            net = actual_finjepa.model if hasattr(actual_finjepa, 'model') else actual_finjepa
+
+                            net.eval()
                             with torch.no_grad():
                                 window_tensor = torch.tensor(
                                     load_and_transform(scaler, df_window[features_cols]),
                                     dtype=torch.float32
-                                ).to(finjepa_predictor.device)
-                                latent_window = finjepa_predictor.model.context_encoder(window_tensor).cpu().numpy()
+                                ).to(encoder_device)
+                                latent_window = net.context_encoder(window_tensor).cpu().numpy()
                             latent_context = latent_window[:-1]
                             latent_query = latent_window[[-1]]
                             X_train = np.hstack([X_train_base, latent_context])
@@ -670,13 +707,12 @@ def decision_ai(dfo, bricks4jepa, cfg, scaler, models, features_cols=None, test=
                         else:
                             X_train = X_train_base
                             X_query = X_query_base
-                        # 3. Fit et Predict rapide sur la mini-fenêtre (exactement comme le modèle 'tab')
+
                         model.fit(X_train, y_train)
-                        proba = model.predict(X_query)
-                # print(f"Prediction time {key_lower}: {time.time() - start:.3f} seconds")
+                        proba = model.predict(X_query)                # print(f"Prediction time {key_lower}: {time.time() - start:.3f} seconds")
                 elif key_lower == 'finjepa':
                     # Si 'model' est le FinJepaPredictor ou directement son modèle PyTorch
-                    predictor = model
+                    predictor, stats = model
                     if hasattr(predictor, 'model'):
                         fin_net = predictor.model
                     else:
@@ -1216,7 +1252,7 @@ def detect_market_regime(df, regime_params=None, slope=0.0, volatility=1.0):
 
     # 3. ADX
     adx_period = params["adx_period"]
-    if 'high' in df.columns and 'low' in df.columns:
+    if 'high' in df.columns and 'low' in df.columns and len(df) > adx_period:
         plus_dm = df['high'].diff().clip(lower=0)
         minus_dm = -df['low'].diff().clip(upper=0)
         tr = pd.concat([
@@ -1297,6 +1333,10 @@ def weighted_decision(proba_dict, weights, df, bornes, slope):
         float: score final entre -2 et +2
     """
     # 1. Calcul des scores par modèle
+    # 0. Sécurité : Vérifier si le DataFrame est vide
+    if df is None or len(df) == 0:
+        return 0.0
+
     model_scores = {}
     for model_name, proba in proba_dict.items():
         if proba is None:
@@ -1429,15 +1469,15 @@ def enhanced_decision(proba_dict, weights, df, action,
     reg_num = NONE
     if "_UP" in regime:
         reg_num = 1
-        if "VOLATILE" in regime:
+        if "_FAST" in regime or "VOLATILE" in regime:
             reg_num = 2
     elif "_DOWN" in regime:
         reg_num = -1
-        if "VOLATILE" in regime:
+        if "_FAST" in regime or "VOLATILE" in regime:
             reg_num = -2
     if reg_num * action > 0:
         if zone != 0:
-            zone = action if abs(zone) == 1 else action * 2
+            zone = reg_num   # action if abs(zone) == 1 else action * 2
         return zone, regime
     """
     else:

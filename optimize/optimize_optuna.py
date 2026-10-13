@@ -143,12 +143,16 @@ def objective(trial):
     # Poids des modèles pour la combinaison IA + Rules
     weight_lstm = trial.suggest_int("weight_lstm", 1, 10, step=1)
     weight_jepa = trial.suggest_int("weight_jepa", 1, 10, step=1)
+    weight_finjepa = trial.suggest_int("weight_finjepa", 1, 10, step=1)
     weight_tab = trial.suggest_int("weight_tab", 1, 10, step=1)
     weight_cat = trial.suggest_int("weight_cat", 1, 10, step=1)
     weight_xgb = trial.suggest_int("weight_xgb", 1, 10, step=1)
-    target_col = trial.suggest_categorical('target_col', ['diff_close', 'diff_ema', 'diff_rsi'])
-    # 1. Utiliser un tuple incluant JEPA dans les choix de modèles
+    weight_lgbm = trial.suggest_int("weight_lgbm", 1, 10, step=1)
+    weight_tabfin = trial.suggest_int("weight_tabfin", 1, 10, step=1)
 
+    target_col = trial.suggest_categorical('target_col', ['diff_close', 'diff_ema', 'diff_rsi'])
+
+    # 1. Utiliser un tuple incluant JEPA dans les choix de modèles
     version_choices = (
         "CAT, TAB",
         "JEPA",
@@ -188,12 +192,12 @@ def objective(trial):
     config["parameters"]["weights"] = {
         "LSTM": weight_lstm,
         "JEPA": weight_jepa,
+        "FINJEPA": weight_finjepa,
         "TAB": weight_tab,
-        "TABFIN": weight_tab,
-        "FINJEPA": weight_cat,
+        "TABFIN": weight_tabfin,
         "CAT": weight_cat,
         "XGB": weight_xgb,
-        "LGBM": trial.suggest_int("weight_lgbm", 1, 10, step=1)
+        "LGBM": weight_lgbm
     }
     
     # Paramètres pour le filtrage temporel (à utiliser dans enhanced_decision)
@@ -225,6 +229,9 @@ def objective(trial):
             }
         if 'FINJEPA' == vs:
             config["finjepa"] = {
+                "embed_dim": trial.suggest_categorical('fin_embed_dim', [32, 64, 128]),
+                "num_heads": trial.suggest_categorical('fin_num_heads', [2, 4, 8]),
+                "num_layers": trial.suggest_int('fin_num_layers', 1, 4, step=1),
                 # Longueur du contexte historique analysé par la Fin-JEPA
                 "context_len": trial.suggest_categorical('fin_context_len', [30, 45, 60, 90]),
                 # Horizon de prédiction (cible)
@@ -232,7 +239,7 @@ def objective(trial):
                 # Taille de batch fixée pour la stabilité sur CPU
                 "batch_size": 32,
                 # Nombre d'époques resserré pour que l'entraînement reste instantané
-                "epochs": trial.suggest_int('fin_epochs', 2, 6),
+                "epochs": trial.suggest_int('fin_epochs', 2, 6, step=1),
                 # Taux d'apprentissage exploré sur une échelle logarithmique
                 "lr": trial.suggest_float('fin_lr', 5e-5, 1e-3, log=True),
             }
@@ -274,13 +281,13 @@ def objective(trial):
     config["target"]["target_col"] = [target_col]
 
     config["market_regime"] = {
-        "regression_window": trial.suggest_int("regression_window", 10, 30),
-        "adx_period": trial.suggest_int("adx_period", 10, 20),
-        "volatility_window": trial.suggest_int("volatility_window", 30, 70),
+        "regression_window": trial.suggest_int("regression_window", 8, 20, step=2),
+        "adx_period": trial.suggest_int("adx_period", 10, 20, step=2),
+        "volatility_window": trial.suggest_int("volatility_window", 36, 60, step=2),
         "volatility_threshold": trial.suggest_float("volatility_threshold", 1.2, 2.0, step=0.1),
-        "adx_threshold_strong": 25,  # Tendance forte
-        "adx_threshold_weak": 20,  # Tendance faible
-        "slope_threshold": 0.05,  # Seuil pente pour FAST/SLOW
+        "adx_threshold_strong": trial.suggest_int("adx_threshold_strong", 20, 40),
+        "adx_threshold_weak": trial.suggest_int("adx_threshold_weak", 15, 25),
+        "slope_threshold": trial.suggest_float("slope_threshold", 0.01, 0.1, step=0.01)
     }
 
     # 3. On redécoupe la chaîne pour retrouver votre liste de modèles
@@ -288,7 +295,8 @@ def objective(trial):
     # config['live']["tp"] = trial.suggest_categorical('tp', optionTP)
 
     # Optimisation de l'option VSIMPLE/VTOTALE/VDIRECT
-    option_str = trial.suggest_categorical("option", ["TTT", "TTF", "TFT", "TFF", "FTT", "FTF", "FFT", "FFF"])
+    option_str = trial.suggest_categorical("option", ["TTTT", "TTFT", "TFTT", "TFFT", "FTTT", "FTFT", "FFTT", "FFFT"])
+    #"TTTF", "TTFF", "TFTF", "TFFF", "FTTF", "FTFF", "FFTF", "FFFF"])
     config["live"]["option"] = option_str
     # config['live']['version'] = ['CAT']
     # config["live"]["version"] = ['TAB']
@@ -408,7 +416,7 @@ def optimize_start():
         print(f"🚀 Cette instance va participer à l'exécution des {restants} tests restants.")
         print("-" * 50)
         n_trials = TOTAL_MAX_TRIALS
-        n_jobs = 4
+        n_jobs = 5
         print(f"Optimisation : {n_trials} essais sur {n_jobs} coeurs.")
         study.optimize(objective_wrapper, n_trials=n_trials, n_jobs=n_jobs)
     else:

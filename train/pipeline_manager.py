@@ -21,7 +21,7 @@ import gc
 import tensorflow as tf
 
 from train.trainer import lstm_train_model, tabicl_train, xgb_train, lgbm_train, gru_train, mlp_train, \
-    lstm_train_simple, lstm_train_ultra, catboost_train, tabicl_fine_train, jepa_train
+    lstm_train_simple, lstm_train_ultra, catboost_train, tabicl_fine_train, jepa_train, finjepa_train
 from utils.model_utils import scale_cols_only, config_to_features, prepare_target_column, assemble_with_targets, \
     create_sequences_numba
 
@@ -164,37 +164,6 @@ def prepare_jepa_data(df, brick_size, stats):
     raw_closes = df["close"].values.astype(np.float32)
     """
     return features, raw_closes, stats
-
-def create_jepa_windows(data: np.ndarray, context_len: int = 50, target_len: int = 10):
-    """
-    Découpe une série temporelle (ex: prix Renko, indicateurs) en fenêtres glissantes.
-
-    Args:
-        data: Array numpy de forme [N_samples, N_features]
-        context_len: Longueur de l'historique passé (le contexte)
-        target_len: Longueur du futur à prédire (la cible)
-
-    Returns:
-        context_windows: Tenseur [Batch, context_len, features]
-        target_windows: Tenseur [Batch, target_len, features]
-    """
-    contexts = []
-    targets = []
-
-    total_len = len(data)
-    window_size = context_len + target_len
-
-    for i in range(total_len - window_size + 1):
-        # Le bloc de contexte (passé)
-        ctx = data[i: i + context_len]
-        # Le bloc cible (futur proche)
-        tgt = data[i + context_len: i + window_size]
-
-        contexts.append(ctx)
-        targets.append(tgt)
-
-    return torch.tensor(np.array(contexts), dtype=torch.float32), \
-        torch.tensor(np.array(targets), dtype=torch.float32)
 
 
 class NextCloseRenkoDataset(Dataset):
@@ -426,7 +395,7 @@ def train_all_models(config_std, df, trial):
                 # Supposons que vous avez votre train_df et vos features de base
                 # 1. Obtenir les embeddings de la JEPA sous forme de tableau 2D [N_samples, embed_dim]
                 # un modèle fin_jepa doit avoir déjà existe
-                predictor = models['FINJEPA']
+                predictor, _ = models['FINJEPA']
                 # assert hasattr(predictor, 'model') and predictor.model is not None, "Model must exist before using TABFIN"
                 predictor.model.eval()
                 # 🚀 RESTRICTION : On ne garde que les 2000 dernières lignes pour soulager le CPU
@@ -473,46 +442,21 @@ def train_all_models(config_std, df, trial):
                     df_jepa_subset = df_subset
                 train_dataset, train_loader, test_loader = prepare_jepa(df_jepa_subset, jepa)
                 model = jepa_train(train_loader, test_loader, jepa, trial)
-                models[vs] = (model, train_dataset.stats)                #print(f"train_all_models: model={type(model)} stats={train_dataset.stats}")
+                models[vs] = (model, train_dataset.stats)
+                #print(f"train_all_models: model={type(model)} stats={train_dataset.stats}")
             elif 'FINJEPA' == vs:
                 from train.trainer import FinJepaPredictor
                 max_bars = 2000
-                # Paramètres configurables (ou valeurs par défaut)
-                jepa_cfg = cfg.get('finjepa', {})
-                ctx_len = jepa_cfg.get('context_len', 60)
-                tgt_len = jepa_cfg.get('target_len', 15)
-                batch_size = jepa_cfg.get('batch_size', 32)
-                epochs = jepa_cfg.get('epochs', 3)
-                lr = jepa_cfg.get('lr', 1e-4)
                 # 1. Utilisation de X_train (qui est déjà scalé via X_scaler)
                 # X_train est un tableau numpy de forme [N_samples, len(features_cols)]
                 X_train_val = np.concatenate([X_train, X_val], axis=0)
                 if len(X_train_val) > max_bars:
                     X_train_val = X_train_val[-max_bars:]
                 # y_train_val = np.concatenate([y_train, y_val], axis=0)[-2000:]
-                input_dim = X_train_val.shape[1]
-                # 1. Initialiser le prédicteur FinJEPA
-                predictor = FinJepaPredictor(input_dim=input_dim, lr=lr)
-                # 2. Créer les fenêtres sur l'ensemble combiné (80% des données)
-                context_batch, target_batch = create_jepa_windows(X_train_val, context_len=ctx_len, target_len=tgt_len)
-                # 4. Boucle d'entraînement sur plusieurs époques ou une passe simple
-                predictor.model.train()
-                for epoch in range(epochs):
-                    total_loss = 0.0
-                    n_batches = 0
-                    # Mélange optionnel des batchs à chaque époque pour plus de robustesse
-                    indices = torch.randperm(len(context_batch))
-                    for i in range(0, len(context_batch) - batch_size, batch_size):
-                        batch_idx = indices[i: i + batch_size]
-                        ctx_b = context_batch[batch_idx]
-                        tgt_b = target_batch[batch_idx]
-                        loss = predictor.train_step(ctx_b, tgt_b)
-                        total_loss += loss
-                        n_batches += 1
-                    avg_loss = total_loss / max(1, n_batches)
-                    print(f"FinJEPA [Epoch {epoch + 1}/{epochs}] - Loss moyenne: {avg_loss:.4f}")
                 # 5. Stockage du modèle entraîné dans le dictionnaire de sortie
-                models[vs] = predictor
+                predictor = finjepa_train(X_train_val, cfg.get("jepa", {}))
+                models[vs] = predictor, predictor.model.state_dict()
+
         result = {'models': models,
                   'scaler': X_scaler,
                   'renko_test': test_df,

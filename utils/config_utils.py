@@ -32,11 +32,12 @@ trans = {"EMA": ["ema_period"], "RSI": ["rsi_period", "rsi_high", "rsi_low"], "M
          "CCI": ["cci__period", "cci_high", "cci_low"], "ATR}": ["atr_period"], "close":["close"], "time_live": ["time_live"]}
 
 def set_option(option: str):
-    global VSIMPLE, VTOTALE, VDIRECT
+    global VSIMPLE, VTOTALE, VDIRECT, VENHANCE
     # print(f" option {option} ")
     VSIMPLE = True if option[0] == 'T' else False
     VTOTALE = True if option[1] == 'T' else False
     VDIRECT = True if option[2] == 'T' else False
+    VENHANCE = True if option[3] == 'T' else False
 
 
 def config_to_hash(config: dict) -> str:

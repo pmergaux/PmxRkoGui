@@ -330,7 +330,7 @@ class PmxRkoBacktester(PmxRkoStrategy):
             #return None
         if win_trades + loss_trades + none_trades != nb_trades:
             print(f"alerte {win_trades}+{loss_trades}+{none_trades} != {nb_trades}")
-            return None
+            return -9999, {}
         profit = np.sum(a)
         # 3. Calcul du score Sharpe avec pénalité de volatilité
         # On utilise l'écart-type (std) pour favoriser la régularité
@@ -351,6 +351,8 @@ class PmxRkoBacktester(PmxRkoStrategy):
         drawdown = running_max - equity_curve
         max_drawdown = np.max(drawdown)
 
+        if abs(sum_pertes) < 1e-4 or max_drawdown < profit * 0.1:
+            return -9999, {}
         # 1. Calculs intermédiaires de base pour le Profit Factor et le Drawdown
         if nb_trades > 0 and 'sum_gains' in locals() and 'sum_pertes' in locals():
             # PLANCHER DE SÉCURITÉ DU PROFIT FACTOR (Règle des 10% minimum de pertes)

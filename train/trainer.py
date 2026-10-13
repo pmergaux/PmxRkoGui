@@ -529,7 +529,7 @@ def tabicl_fine_train(X_train, y_train, X_val, y_val, save_dir="./ckpts"):
     print(f"Fine-tuning terminé. Checkpoints sauvegardés dans : {save_dir}")
     return model
 
-
+# ------------------------------ modèles JEPA ----------------------------
 import torch
 import torch.nn as nn
 import optuna  # Assurez-vous d'importer optuna
@@ -558,7 +558,92 @@ class JepaPredictor(nn.Module):
         pred_brute = self.head(z).squeeze(-1)
         return pred_brute, z
 
+# ===================================================== version fin-jepa
+import copy
 
+class FinJepaModel(nn.Module):
+    def __init__(self, input_dim=5, embed_dim=64, num_heads=4, num_layers=2):
+        super().__init__()
+
+        # 1. PriceEncoder (MLP avec GELU et LayerNorm, inspiré de Fin-JEPA)
+        self.context_encoder = nn.Sequential(
+            nn.Linear(input_dim, 128),
+            nn.LayerNorm(128),
+            nn.GELU(),
+            nn.Linear(128, embed_dim),
+            nn.LayerNorm(embed_dim)
+        )
+
+        # Le Target Encoder a la même structure, mais ses poids sont mis à jour par EMA
+        self.target_encoder = copy.deepcopy(self.context_encoder)
+        for param in self.target_encoder.parameters():
+            param.requires_grad = False  # Pas de rétropropagation directe
+
+        # 2. Prédicteur Causal (Transformer léger pour anticiper le futur latent)
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=embed_dim, nhead=num_heads, batch_first=True, dim_feedforward=128
+        )
+        self.predictor = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+
+        self.embed_dim = embed_dim
+
+    @torch.no_grad()
+    def update_target_encoder(self, m=0.996):
+        """Mise à jour EMA (Exponential Moving Average) des poids de la cible"""
+        for param_q, param_k in zip(self.context_encoder.parameters(), self.target_encoder.parameters()):
+            param_k.data.mul_(m).add_((1.0 - m) * param_q.data)
+
+    def forward(self, context_x, target_x):
+        """
+        context_x : Historique passé (ex: [Batch, Seq_Len_Context, Features])
+        target_x  : Futur à prédire (ex: [Batch, Seq_Len_Target, Features])
+        """
+        # Obtention des représentations latentes du passé
+        h_context = self.context_encoder(context_x)  # [B, T_ctx, Dim]
+
+        # Obtention des représentations latentes du futur (via Target Encoder sans gradients)
+        with torch.no_grad():
+            h_target = self.target_encoder(target_x)  # [B, T_tgt, Dim]
+
+        # Le prédicteur essaie de deviner le futur à partir du contexte
+        # (On peut ajouter des tokens de masquage ou concaténer selon le besoin)
+        prediction = self.predictor(h_context)
+
+        return prediction, h_target
+
+class FinJepaPredictor:
+    def __init__(self, input_dim=5, embed_dim=64, num_heads=4, num_layers=2, lr=1e-4):
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        # On transmet les choix d'Optuna au modèle
+        self.model = FinJepaModel(
+            input_dim=input_dim,
+            embed_dim=embed_dim,
+            num_heads=num_heads,
+            num_layers=num_layers
+        ).to(self.device)
+        self.optimizer = torch.optim.AdamW(self.model.context_encoder.parameters(), lr=lr)
+        self.criterion = nn.MSELoss()
+
+    def train_step(self, context_batch, target_batch):
+        self.model.train()
+        context_batch = context_batch.to(self.device)
+        target_batch = target_batch.to(self.device)
+
+        self.optimizer.zero_grad()
+
+        pred, target_emb = self.model(context_batch, target_batch)
+
+        # Calcul de la perte dans l'espace latent (on aligne les dimensions si nécessaire)
+        loss = self.criterion(pred[:, -target_emb.size(1):, :], target_emb)
+
+        loss.backward()
+        self.optimizer.step()
+
+        # Mettre à jour l'encodeur cible par EMA
+        self.model.update_target_encoder()
+
+        return loss.item()
+# ----------------------------------- entraîements
 # 1. On ajoute trial=None ici
 def jepa_train(train_loader, test_loader, jepa_cfg, trial=None):
     def train_model(model, train_loader, test_loader, num_epochs=15, lr=1e-3, trial=None):
@@ -655,83 +740,64 @@ def jepa_train(train_loader, test_loader, jepa_cfg, trial=None):
     )
     return model
 
-# ===================================================== version fin-jepa
-import copy
+def create_jepa_windows(data: np.ndarray, context_len: int = 50, target_len: int = 10):
+    """
+    Découpe une série temporelle (ex: prix Renko, indicateurs) en fenêtres glissantes.
+    Args:
+        data: Array numpy de forme [N_samples, N_features]
+        context_len: Longueur de l'historique passé (le contexte)
+        target_len: Longueur du futur à prédire (la cible)
+    Returns:
+        context_windows: Tenseur [Batch, context_len, features]
+        target_windows: Tenseur [Batch, target_len, features]
+    """
+    contexts = []
+    targets = []
+    total_len = len(data)
+    window_size = context_len + target_len
+    for i in range(total_len - window_size + 1):
+        # Le bloc de contexte (passé)
+        ctx = data[i: i + context_len]
+        # Le bloc cible (futur proche)
+        tgt = data[i + context_len: i + window_size]
+        contexts.append(ctx)
+        targets.append(tgt)
+    return torch.tensor(np.array(contexts), dtype=torch.float32), \
+        torch.tensor(np.array(targets), dtype=torch.float32)
 
-class FinJepaModel(nn.Module):
-    def __init__(self, input_dim=5, embed_dim=64, num_heads=4, num_layers=2):
-        super().__init__()
-
-        # 1. PriceEncoder (MLP avec GELU et LayerNorm, inspiré de Fin-JEPA)
-        self.context_encoder = nn.Sequential(
-            nn.Linear(input_dim, 128),
-            nn.LayerNorm(128),
-            nn.GELU(),
-            nn.Linear(128, embed_dim),
-            nn.LayerNorm(embed_dim)
-        )
-
-        # Le Target Encoder a la même structure, mais ses poids sont mis à jour par EMA
-        self.target_encoder = copy.deepcopy(self.context_encoder)
-        for param in self.target_encoder.parameters():
-            param.requires_grad = False  # Pas de rétropropagation directe
-
-        # 2. Prédicteur Causal (Transformer léger pour anticiper le futur latent)
-        encoder_layer = nn.TransformerEncoderLayer(
-            d_model=embed_dim, nhead=num_heads, batch_first=True, dim_feedforward=128
-        )
-        self.predictor = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
-
-        self.embed_dim = embed_dim
-
-    @torch.no_grad()
-    def update_target_encoder(self, m=0.996):
-        """Mise à jour EMA (Exponential Moving Average) des poids de la cible"""
-        for param_q, param_k in zip(self.context_encoder.parameters(), self.target_encoder.parameters()):
-            param_k.data.mul_(m).add_((1.0 - m) * param_q.data)
-
-    def forward(self, context_x, target_x):
-        """
-        context_x : Historique passé (ex: [Batch, Seq_Len_Context, Features])
-        target_x  : Futur à prédire (ex: [Batch, Seq_Len_Target, Features])
-        """
-        # Obtention des représentations latentes du passé
-        h_context = self.context_encoder(context_x)  # [B, T_ctx, Dim]
-
-        # Obtention des représentations latentes du futur (via Target Encoder sans gradients)
-        with torch.no_grad():
-            h_target = self.target_encoder(target_x)  # [B, T_tgt, Dim]
-
-        # Le prédicteur essaie de deviner le futur à partir du contexte
-        # (On peut ajouter des tokens de masquage ou concaténer selon le besoin)
-        prediction = self.predictor(h_context)
-
-        return prediction, h_target
-
-
-class FinJepaPredictor:
-    def __init__(self, input_dim=5, lr=1e-4):
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.model = FinJepaModel(input_dim=input_dim).to(self.device)
-        self.optimizer = torch.optim.AdamW(self.model.context_encoder.parameters(), lr=lr)
-        self.criterion = nn.MSELoss()  # Ou une perte combinée MSE + Cosine Similarity
-
-    def train_step(self, context_batch, target_batch):
-        self.model.train()
-        context_batch = context_batch.to(self.device)
-        target_batch = target_batch.to(self.device)
-
-        self.optimizer.zero_grad()
-
-        pred, target_emb = self.model(context_batch, target_batch)
-
-        # Calcul de la perte dans l'espace latent (on aligne les dimensions si nécessaire)
-        loss = self.criterion(pred[:, -target_emb.size(1):, :], target_emb)
-
-        loss.backward()
-        self.optimizer.step()
-
-        # Mettre à jour l'encodeur cible par EMA
-        self.model.update_target_encoder()
-
-        return loss.item()
+def finjepa_train(X_train_val, jepa_cfg):
+    num_heads = jepa_cfg.get('num_heads', 4)
+    num_layers = jepa_cfg.get('num_layers', 2)
+    embed_dim = jepa_cfg.get('embed_dim', 64)
+    ctx_len = jepa_cfg.get('context_len', 60)
+    tgt_len = jepa_cfg.get('target_len', 15)
+    batch_size = jepa_cfg.get('batch_size', 32)
+    epochs = jepa_cfg.get('epochs', 3)
+    lr = jepa_cfg.get('lr', 1e-4)
+    input_dim = X_train_val.shape[1]
+    # 1. Initialiser le prédicteur FinJEPA
+    predictor = FinJepaPredictor(
+        input_dim=input_dim,
+        embed_dim=embed_dim,
+        num_heads=num_heads,
+        num_layers=num_layers,
+        lr=lr
+    )  # 2. Créer les fenêtres sur l'ensemble combiné (80% des données)
+    context_batch, target_batch = create_jepa_windows(X_train_val, context_len=ctx_len, target_len=tgt_len)
+    # 4. Boucle d'entraînement sur plusieurs époques ou une passe simple
+    predictor.model.train()
+    for epoch in range(epochs):
+        total_loss = 0.0
+        n_batches = 0
+        # Mélange optionnel des batchs à chaque époque pour plus de robustesse
+        indices = torch.randperm(len(context_batch))
+        for i in range(0, len(context_batch) - batch_size, batch_size):
+            batch_idx = indices[i: i + batch_size]
+            ctx_b = context_batch[batch_idx]
+            tgt_b = target_batch[batch_idx]
+            loss = predictor.train_step(ctx_b, tgt_b)
+            total_loss += loss
+            n_batches += 1
+        avg_loss = total_loss / max(1, n_batches)
+        print(f"FinJEPA [Epoch {epoch + 1}/{epochs}] - Loss moyenne: {avg_loss:.4f}")
+    return predictor

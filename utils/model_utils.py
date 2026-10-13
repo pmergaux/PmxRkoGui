@@ -15,7 +15,7 @@ from typing import List, Tuple, Dict
 from numba import njit, prange
 from sklearn.preprocessing import MinMaxScaler
 
-from train.trainer import JepaPredictor
+from train.trainer import JepaPredictor, FinJepaModel
 from utils.scaler_utils import train_fit_transform_scaler, load_and_transform
 from utils.utils import get_extension
 
@@ -266,7 +266,7 @@ def load_model(path: str, model_type: str = None):
             path += ".joblib"
         elif ext == ".":
             path+= "joblib"
-    elif model_type == 'tab':
+    elif model_type == 'tab' or model_type == 'tabfin':
         if ext == "":
             path += ".joblib"
         elif ext == ".":
@@ -287,7 +287,7 @@ def load_model(path: str, model_type: str = None):
         return joblib.load(path)
     elif model_type == 'cat':
         return joblib.load(path)
-    elif model_type == 'tab':
+    elif model_type == 'tab' or model_type == 'tabfin':
         return joblib.load(path)
     else:
         return None
@@ -381,9 +381,8 @@ def load_model_artifact(filepath="tabicl_trading_model.pkl"):
     # Utilisation de la méthode de classe native .load()
     model = FinetunedTabICLRegressor.load("my_trading_model.pkl")
     return model
-
+# ------------------------------- les modèles JEPA --------------------
 import torch
-
 
 def cntrl_jepa(state_dict, jepa_cfg):
     # 1. Déduction automatique de l'architecture depuis le checkpoint
@@ -471,4 +470,109 @@ def load_jepa(model_path, jepa_cfg=None):
     model.load_state_dict(state_dict)
     model.eval()
 
+    return model, stats
+
+
+def cntrl_finjepa(state_dict, finjepa_cfg):
+    # 1. Déduction automatique de l'input_dim depuis les poids (shape[1] de la 1ère couche Linear)
+    weight_key = "context_encoder.0.weight"
+    if weight_key in state_dict:
+        _, input_dim = state_dict[weight_key].shape
+    else:
+        raise ValueError(f"Clé '{weight_key}' absente du state_dict Fin-JEPA.")
+
+    # 2. Déduction de embed_dim (shape[0] de la 4ème couche Linear index 3)
+    embed_dim_key = "context_encoder.3.weight"
+    if embed_dim_key in state_dict:
+        embed_dim, _ = state_dict[embed_dim_key].shape
+    else:
+        embed_dim = finjepa_cfg.get("EMBED_DIM", 64)
+
+    # 3. Nombre de couches du Transformer
+    num_layers = sum(1 for k in state_dict.keys() if k.startswith("predictor.layers."))
+    if num_layers == 0:
+        num_layers = finjepa_cfg.get("NUM_LAYERS", 2)
+
+    # 4. Récupération des valeurs de configuration attendues
+    cinput_dim = finjepa_cfg.get("INPUT_DIM")
+
+    # 5. Vérification et synchronisation (similaire à ton jepa)
+    if cinput_dim != input_dim:
+        print(f"⚠️ Ajustement de la config Fin-JEPA : input_dim : {cinput_dim} -> {input_dim}")
+        finjepa_cfg["INPUT_DIM"] = input_dim
+
+    return finjepa_cfg
+
+
+def save_finjepa(model, stats, model_save_path, finjepa_cfg):
+    # Récupération propre du state_dict (gère si c'est le wrapper ou le modèle brut)
+    actual_model = model.model if hasattr(model, 'model') else model
+    state_dict = actual_model.state_dict()
+
+    _, input_dim = state_dict["context_encoder.0.weight"].shape
+    embed_dim, _ = state_dict["context_encoder.3.weight"].shape
+
+    checkpoint = {
+        "model_state_dict": state_dict,
+        "stats": stats,
+        "hyperparameters": {
+            "input_dim": input_dim,
+            "embed_dim": embed_dim,
+            "num_heads": finjepa_cfg.get("NUM_HEADS", 4),
+            "num_layers": sum(1 for k in state_dict.keys() if k.startswith("predictor.layers.")) or 2
+        }
+    }
+    torch.save(checkpoint, model_save_path)
+    print(f"  -> Fin-JEPA sauvegardé sous {model_save_path}")
+
+
+def load_finjepa(model_path, finjepa_cfg=None):
+    checkpoint = torch.load(model_path, map_location='cpu')
+    state_dict = checkpoint["model_state_dict"]
+    stats = checkpoint["stats"]
+
+    hp = checkpoint.get("hyperparameters", {})
+
+    # 1. Récupération de l'input_dim
+    if "input_dim" in hp:
+        input_dim = hp["input_dim"]
+    else:
+        weight_key = "context_encoder.0.weight"
+        input_dim = state_dict[weight_key].shape[1] if weight_key in state_dict else 5
+
+    # 2. Récupération de embed_dim
+    embed_dim = hp.get("embed_dim", 64)
+    num_heads = hp.get("num_heads", 4)
+
+    # 3. 🚀 CORRECTION CRUCIALE : Comptage réel des couches du Transformer depuis le state_dict
+    # On cherche le max de l'index dans "predictor.layers.X..."
+    layer_indices = []
+    for k in state_dict.keys():
+        if k.startswith("predictor.layers."):
+            parts = k.split('.')
+            try:
+                idx = int(parts[2])
+                layer_indices.append(idx)
+            except ValueError:
+                continue
+
+    if len(layer_indices) > 0:
+        # S'il y a N indices uniques, le nombre de couches est max_index + 1
+        num_layers = max(layer_indices) + 1
+    else:
+        num_layers = hp.get("num_layers", 2)
+
+    print(f"  -> Fin-JEPA : Détection dynamique de {num_layers} couches (au lieu de hp).")
+
+    # Instanciation avec le bon nombre de couches
+    model = FinJepaModel(
+        input_dim=input_dim,
+        embed_dim=embed_dim,
+        num_heads=num_heads,
+        num_layers=num_layers
+    )
+    model.load_state_dict(state_dict)
+    model.eval()
+
+    print(f"  -> Fin-JEPA chargé avec succès (input_dim={input_dim}, embed_dim={embed_dim}, num_layers={num_layers})")
     return model, stats
