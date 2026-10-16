@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pmxrko"
+version = "1.0.0"
+description = "Package de trading algorithmique PmxRkoGui (JEPA, TabICL, etc.)"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "torch",
+    "tensorflow",
+    "optuna",
+    "pandas",
+    "numpy",
+    "scikit-learn",
+    "lightgbm",
+    "xgboost",
+    "joblib",
+    "numba"
+]
+[tool.setuptools.package-data]
+pmxrko = ["ui/*.ui"]
+[tool.setuptools.packages.find]
+where = ["src"]
